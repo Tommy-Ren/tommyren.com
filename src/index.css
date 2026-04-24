@@ -47,6 +47,10 @@ html, body, #root {
   z-index: 100;
 }
 
+.hud-collision {
+  animation: hud-shake 0.5s ease-out;
+}
+
 .hud-title {
   position: absolute;
   top: 24px; left: 32px;
@@ -76,64 +80,69 @@ html, body, #root {
   font-size: 1.1rem;
   color: var(--secondary-a);
   text-shadow: 0 0 10px var(--secondary-a), 0 0 20px var(--secondary-a);
-  transition: opacity 0.4s ease;
 }
 
-.hud-score.hidden {
-  opacity: 0;
+/* Autopilot indicator */
+.autopilot-indicator {
+  position: absolute;
+  top: 60px; right: 32px;
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+  color: var(--secondary-b);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  opacity: 0.8;
+  transition: all 0.3s ease;
+}
+
+.autopilot-indicator.active {
+  color: var(--secondary-a);
+}
+
+.autopilot-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--secondary-b);
+  box-shadow: 0 0 6px var(--secondary-b);
+  transition: all 0.3s ease;
+}
+
+.autopilot-indicator.active .autopilot-dot {
+  background: var(--secondary-a);
+  box-shadow: 0 0 10px var(--secondary-a);
+  animation: pulse-dot 1s infinite;
+}
+
+/* Collision overlay */
+.collision-overlay {
+  position: fixed;
+  top: 0; left: 0;
+  width: 100%; height: 100%;
+  background: rgba(255, 0, 85, 0.08);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 500;
+  animation: collision-flash 0.5s ease-out;
   pointer-events: none;
 }
 
-/* Toggle Switch */
-.toggle-container {
-  position: absolute;
-  bottom: 32px; right: 32px;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  pointer-events: all;
-  cursor: pointer;
-}
-
-.toggle-label {
-  font-family: var(--font-mono);
-  font-size: 0.7rem;
-  letter-spacing: 2px;
+.collision-text {
+  font-family: var(--font-main);
+  font-size: 3rem;
+  font-weight: 900;
+  letter-spacing: 12px;
   text-transform: uppercase;
-  color: var(--primary);
-  opacity: 0.7;
-}
-
-.toggle-switch {
-  width: 56px;
-  height: 28px;
-  border-radius: 14px;
-  border: 2px solid var(--primary);
-  background: rgba(0, 240, 255, 0.05);
-  position: relative;
-  transition: all 0.3s ease;
-  box-shadow: 0 0 8px rgba(0, 240, 255, 0.3), inset 0 0 8px rgba(0, 240, 255, 0.1);
-}
-
-.toggle-switch.active {
-  background: rgba(0, 240, 255, 0.15);
-  box-shadow: 0 0 16px rgba(0, 240, 255, 0.5), inset 0 0 12px rgba(0, 240, 255, 0.2);
-}
-
-.toggle-knob {
-  width: 20px;
-  height: 20px;
-  border-radius: 50%;
-  background: var(--primary);
-  position: absolute;
-  top: 2px;
-  left: 2px;
-  transition: all 0.3s ease;
-  box-shadow: 0 0 10px var(--primary);
-}
-
-.toggle-switch.active .toggle-knob {
-  left: 30px;
+  color: var(--secondary-b);
+  text-shadow:
+    0 0 20px var(--secondary-b),
+    0 0 40px var(--secondary-b),
+    0 0 80px var(--secondary-b);
+  animation: collision-text-glitch 0.5s steps(4) infinite;
 }
 
 /* Instructions */
@@ -143,11 +152,12 @@ html, body, #root {
   left: 50%;
   transform: translateX(-50%);
   font-family: var(--font-mono);
-  font-size: 0.6rem;
+  font-size: 0.55rem;
   letter-spacing: 2px;
   color: var(--primary);
-  opacity: 0.4;
+  opacity: 0.35;
   text-align: center;
+  white-space: nowrap;
 }
 
 /* Sub-pages */
@@ -215,9 +225,45 @@ html, body, #root {
   box-shadow: 0 0 20px rgba(255, 0, 85, 0.5);
 }
 
-/* Glitch animation */
+/* ── Animations ── */
+
 @keyframes glitch-flicker {
   0%, 93%, 95%, 97%, 100% { opacity: 1; }
   94% { opacity: 0.8; transform: translateX(-2px); }
   96% { opacity: 0.9; transform: translateX(2px); }
+}
+
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.5; transform: scale(1.4); }
+}
+
+@keyframes collision-flash {
+  0% { background: rgba(255, 0, 85, 0.3); }
+  20% { background: rgba(255, 255, 255, 0.15); }
+  40% { background: rgba(255, 0, 85, 0.2); }
+  60% { background: rgba(0, 240, 255, 0.1); }
+  80% { background: rgba(255, 0, 85, 0.1); }
+  100% { background: rgba(255, 0, 85, 0.05); }
+}
+
+@keyframes collision-text-glitch {
+  0% { transform: translate(0, 0) skewX(0deg); }
+  25% { transform: translate(-4px, 2px) skewX(-5deg); }
+  50% { transform: translate(3px, -1px) skewX(3deg); }
+  75% { transform: translate(-2px, -3px) skewX(-2deg); }
+  100% { transform: translate(0, 0) skewX(0deg); }
+}
+
+@keyframes hud-shake {
+  0%, 100% { transform: translate(0, 0); }
+  10% { transform: translate(-3px, 2px); }
+  20% { transform: translate(4px, -1px); }
+  30% { transform: translate(-2px, 3px); }
+  40% { transform: translate(3px, -2px); }
+  50% { transform: translate(-1px, 1px); }
+  60% { transform: translate(2px, -1px); }
+  70% { transform: translate(-1px, 2px); }
+  80% { transform: translate(1px, -1px); }
+  90% { transform: translate(-1px, 0px); }
 }

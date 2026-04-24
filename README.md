@@ -1,75 +1,64 @@
-# 🐍 Cyber-Snake Portfolio
+# 🌐 WebGPU Cyber-Sphere Portfolio
 
-A gamified personal portfolio website with a **Cyberpunk 2077** aesthetic. The homepage features a 3D Snake game built with Three.js where navigation is driven by both game mechanics and traditional UI interaction.
-
-## 🎮 Features
-
-- **3D Snake Game** — A glowing snake crawls in a serpentine pattern across a neon grid
-- **Dual Navigation** — Steer the snake into section blocks OR click them directly
-- **Auto-Crawl Toggle** — Switch between game mode and static browsing mode
-- **Scoreboard** — Eat food to grow the snake and rack up points
-- **Cyberpunk HUD** — Scanlines, bloom glow, glitch animations, and neon colors
-- **5 Section Pages** — Resume, Background, Portfolio, Projects, CV
+An ultra-modern, interactive 3D personal portfolio built with Three.js and React Three Fiber. The experience takes place on a continuously rotating, cyberpunk-styled **spherical world** — a neon snake crawls across the globe, collecting food and colliding with portfolio section blocks to navigate.
 
 ## 🎨 Color Palette
 
 | Role | Color | Hex |
 |------|-------|-----|
-| Background | Deep Void Black | `#050505` |
-| Primary | Neon Fluorescent Cyan | `#00F0FF` |
-| Secondary A | Lime Green (food/success) | `#ADFF00` |
-| Secondary B | Neon Pink (nav blocks/hover) | `#FF0055` |
+| Background / Void | Deep Void Black | `#050505` |
+| Primary (Snake) | Neon Fluorescent Cyan | `#00F0FF` |
+| Highlight (Nav Blocks) | Neon Pink | `#FF0055` |
+| Food / Secondary | Lime Green | `#ADFF00` |
+
+## 🎮 Controls
+
+- **A / ← Arrow** — Steer left
+- **D / → Arrow** — Steer right
+- The snake moves forward continuously — you can only steer, not stop
+- **Autopilot** engages automatically after 3 seconds of no input (A* pathfinding to nearest food)
+- **Manual override** — any key press instantly disables autopilot
+
+## 🌍 Spherical World
+
+The game takes place on a 3D sphere. Moving in any direction will eventually loop back to the starting point. Portfolio section blocks and food items are scattered across the globe surface using spherical coordinates.
+
+## 💥 Collision Mechanics
+
+When the snake hits a portfolio block:
+1. Forward motion halts
+2. 0.5-second visual feedback (glitch effect, screen shake, rapid flashing)
+3. Page transitions to the corresponding section
+
+## 🧠 A* Pathfinding
+
+When autopilot is active, the snake uses A* pathfinding mapped over a discretized spherical grid to navigate toward the nearest food item, avoiding nav blocks.
 
 ## 🛠 Tech Stack
 
-- **React 18** + Vite
-- **Three.js** via React Three Fiber (R3F)
-- **@react-three/drei** — Helpers and abstractions
-- **@react-three/postprocessing** — Bloom effect
-- **Zustand** — Lightweight state management
-- **React Router v6** — Client-side routing
-
-## 🚀 Getting Started
-
-```bash
-# Install dependencies
-npm install
-
-# Start development server
-npm run dev
-
-# Build for production
-npm run build
-
-# Preview production build
-npm run preview
-```
-
-## 🕹 Controls
-
-| Key | Action |
-|-----|--------|
-| `W` / `↑` | Move snake up |
-| `S` / `↓` | Move snake down |
-| `A` / `←` | Move snake left |
-| `D` / `→` | Move snake right |
-| Toggle Switch | Enable/disable auto-crawl |
-| Click Block | Navigate to section page |
+- **React 18** + React Router
+- **Three.js** (r172) + React Three Fiber (R3F)
+- **@react-three/postprocessing** — Bloom + Glitch passes
+- **Zustand** — State management
+- **Vite 5** — Build tooling
+- Spherical coordinate math (Three.js `Spherical` / custom utils)
 
 ## 📁 Project Structure
 
 ```
 src/
-├── main.jsx                  # App entry point
-├── App.jsx                   # React Router setup
-├── index.css                 # Cyberpunk global styles
+├── main.jsx              # Entry point with BrowserRouter
+├── App.jsx               # React Router routes
+├── index.css             # Cyberpunk CSS (scanlines, glitch, HUD)
 ├── store/
-│   └── gameStore.js          # Zustand game state
+│   └── gameStore.js      # Zustand store (game state, autopilot, collision)
+├── utils/
+│   └── sphereMath.js     # Spherical math, A* pathfinding, movement
 ├── components/
-│   ├── GameScene.jsx         # 3D snake, food, nav blocks, grid
-│   └── HUD.jsx               # Scoreboard, toggle, instructions
+│   ├── GameScene.jsx     # Core 3D scene (globe, snake, food, nav blocks)
+│   └── HUD.jsx           # Overlay UI (score, autopilot indicator, instructions)
 └── pages/
-    ├── HomePage.jsx           # R3F Canvas + post-processing
+    ├── HomePage.jsx      # R3F Canvas with post-processing
     ├── ResumePage.jsx
     ├── BackgroundPage.jsx
     ├── PortfolioPage.jsx
@@ -77,6 +66,17 @@ src/
     └── CVPage.jsx
 ```
 
-## 📝 License
+## � Getting Started
 
-MIT
+```bash
+npm install
+npm run dev
+```
+
+## 📦 Build
+
+```bash
+npm run build
+npm run preview
+```
+

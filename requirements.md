@@ -1,62 +1,38 @@
-import os
-
-# Define the content for the markdown file
-markdown_content = """# Project Specification: Cyber-Snake Portfolio
+# Project Specification: WebGPU Cyber-Sphere Portfolio
 
 ## 1. Project Vision
-A highly interactive, gamified personal portfolio website with a **Cyberpunk 2077** aesthetic. The homepage features a 3D "Snake" game built with **Three.js**, where navigation is driven by both game mechanics (collision) and traditional UI interaction.
+An ultra-modern, interactive 3D personal portfolio built with **WebGPU** and Three.js. The experience takes place on a continuously rotating, cyberpunk-styled spherical world. The user acts as a neon snake, constantly moving forward around the globe, navigating between interactive "portfolio sections" and collecting food, blending gamification with professional showcasing.
 
 ## 2. Visual Identity & Theme
-The design must strictly adhere to a neon-noir, cyberpunk color palette to create a high-contrast, high-tech atmosphere.
+The aesthetic is pure neon-noir cyberspace, utilizing high-contrast glowing elements against a dark void.
+* **Background / Void:** `#050505` (Deep Void Black).
+* **Primary Accent (The Snake):** `#00F0FF` (Neon Fluorescent Cyan). Must utilize Three.js **Bloom (Post-processing)** to ensure the snake visibly radiates light onto the dark globe.
+* **Core Highlight (Key Sections):** `#FF0055` (Neon Pink). Strictly reserved for high-priority sections like "Projects" or "Resume" to instantly grab the user's attention.
+* **Secondary/Food:** `#ADFF00` (Lime Green) for collectable items.
+* **Visual Effects:** Scanlines, holographic text floating above the blocks, and emissive materials powered by WebGPU rendering.
 
-* **Background Color:** `#050505` (Deep Void Black)
-* **Primary Color:** `#00F0FF` (Neon Fluorescent Cyan) - For the snake, main UI borders, and active states.
-* **Secondary Color A:** `#ADFF00` (Lime Green) - For "Food" items and success states.
-* **Secondary Color B:** `#FF0055` (Neon Pink) - For interactive blocks, warnings, or hover highlights.
-* **Styling Cues:** Glitch effects, scanlines, glowing bloom (Post-processing), and semi-transparent glassmorphism.
+## 3. Core Gameplay & Spherical Topology
+* **The World:** A 3D sphere. Because the topology is spherical, moving continuously in any single direction will eventually loop the player back to their starting coordinates.
+* **Continuous Motion:** The snake is in a state of perpetual forward motion ("crawling").
+* **Player Controls:** The player cannot stop the forward movement. They can only steer left or right relative to the snake's current heading using the `A` and `D` keys or the `Left` and `Right` arrow keys.
+* **Objective:** Collect randomly spawned food (Lime Green) to increase the score, while navigating toward or away from the 3D portfolio blocks scattered across the globe.
 
-## 3. Core Gameplay & Navigation Logic
-### 3.1 The "Cyber-Snake" Mechanism
-* **Movement:** A 3D snake (composed of glowing segments) constantly crawls in a "snake-like" serpentine pattern in the center of the viewport.
-* **Standard Game Loop:** * Randomly spawned "Food" items (Neon Lime) appear on the map.
-    * Eating food increases the snake's length and increments the **Scoreboard**.
-* **Collision Navigation:** Several large 3D interactive blocks represent site sections (e.g., **Resume, Background, Portfolio, Projects, CV**).
-    * If the snake head collides with a block, the browser triggers a transition to the corresponding sub-page.
+## 4. AI & "Autopilot" Logic (A* Pathfinding)
+To ensure the website remains dynamic even when the user is passive, an intelligent autopilot system is implemented:
+* **A* Pathfinding on a Sphere:** When active, the snake uses an A* algorithm (mapped over a spherical grid or nav-mesh) to automatically calculate the shortest path to the nearest randomly generated food item and navigates towards it.
+* **Manual Override:** The moment the user provides input (`A`, `D`, `Left`, `Right`), the A* autopilot is instantly disabled, granting full control to the player.
+* **Idle Resumption:** If the system detects no user keyboard input for exactly **3 seconds**, the A* autopilot automatically re-engages and takes over steering.
 
-### 3.2 Dual-Mode Interaction
-* **Game Mode (Auto-Crawl ON):**
-    * The snake moves autonomously or is user-controlled (WASD/Arrows).
-    * A **Scoreboard** is visible in the HUD.
-    * Since the snake is moving, clicking blocks with a mouse is challenging (high-skill interaction).
-* **Static Mode (Auto-Crawl OFF):**
-    * A global toggle switch allows the user to disable the snake's movement.
-    * When OFF: The snake freezes or disappears, the Scoreboard is hidden.
-    * Users can easily navigate by clicking the static 3D blocks with the mouse.
+## 5. Collision & Navigation Mechanics
+* **The Blocks:** The globe is populated with distinct 3D structures representing different website sections (e.g., *About Me, Tech Stack, Projects (Neon Pink), CV*).
+* **Impact Sequence:** When the snake's head collides with a portfolio block, a **0.5-second visual feedback sequence** is triggered before the page routes:
+    1.  The forward motion halts.
+    2.  The struck block undergoes a visual distortion (e.g., rapid flashing, digital glitching, or pixelated collapsing/shattering).
+    3.  A sound effect plays (optional).
+    4.  After the 0.5s animation completes, the application transitions to the corresponding detailed content page.
 
-## 4. Layout & Components
-* **Center Stage:** The 3D Grid/Arena where the snake and navigation blocks reside.
-* **Navigation Blocks:** Floating, glowing 3D cubes or panels with holographic text labels.
-* **HUD (Heads-Up Display):**
-    * **Top Left:** Project Title / Name.
-    * **Top Right:** Scoreboard (Only visible in Game Mode).
-    * **Bottom Center/Right:** The "Auto-Crawl" Toggle Switch (Cyberpunk-styled).
-
-## 5. Technical Stack (Recommended)
-* **Frontend:** React.js
-* **3D Engine:** Three.js with **React Three Fiber (R3F)**.
-* **Physics:** `@react-three/rapier` for collision detection between the snake and navigation blocks.
-* **Post-processing:** UnrealBloomPass (for that neon glow) and GlitchPass.
-* **State Management:** Zustand or React Context (to handle the Game/Static mode toggle).
-
-## 6. Functional Requirements
-1.  **Responsiveness:** The 3D canvas must resize dynamically to fit the window.
-2.  **Performance:** Optimize geometry and lighting to ensure a smooth 60 FPS experience.
-3.  **Route Integration:** Use `react-router-dom` to handle the transition between the 3D home screen and the detailed content pages.
-"""
-
-# Save the markdown file
-file_path = "Cyber_Snake_Portfolio_Specs.md"
-with open(file_path, "w", encoding="utf-8") as f:
-    f.write(markdown_content)
-
-print(f"File saved to {file_path}")
+## 6. Technical Stack & Execution
+* **Graphics API:** **WebGPU** (via the latest Three.js `WebGPURenderer`) for superior performance, handling complex post-processing and hundreds of glowing segments efficiently.
+* **Framework:** React with React Three Fiber (R3F).
+* **Math/Physics:** Spherical coordinate math (`Spherical` class in Three.js) to pin the blocks, food, and snake segments to the surface of the globe, calculating surface normals to keep them upright.
+* **Post-Processing:** `@react-three/postprocessing` using Bloom Pass (thresholds adjusted so only the neon colors glow) and Glitch Pass (triggered on collision).

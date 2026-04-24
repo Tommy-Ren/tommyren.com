@@ -2,11 +2,12 @@ import useGameStore from '../store/gameStore'
 
 export default function HUD() {
   const score = useGameStore(s => s.score)
-  const autoCrawl = useGameStore(s => s.autoCrawl)
-  const toggleAutoCrawl = useGameStore(s => s.toggleAutoCrawl)
+  const autopilot = useGameStore(s => s.autopilot)
+  const colliding = useGameStore(s => s.colliding)
+  const collidingBlock = useGameStore(s => s.collidingBlock)
 
   return (
-    <div className="hud">
+    <div className={`hud ${colliding ? 'hud-collision' : ''}`}>
       <div className="scanlines" />
 
       {/* Title */}
@@ -16,29 +17,30 @@ export default function HUD() {
       </div>
 
       {/* Scoreboard */}
-      <div className={`hud-score ${!autoCrawl ? 'hidden' : ''}`}>
+      <div className="hud-score">
         SCORE: {String(score).padStart(6, '0')}
       </div>
 
-      {/* Toggle */}
-      <div className="toggle-container" onClick={toggleAutoCrawl}>
-        <span className="toggle-label">Auto-Crawl</span>
-        <div className={`toggle-switch ${autoCrawl ? 'active' : ''}`}>
-          <div className="toggle-knob" />
-        </div>
+      {/* Autopilot indicator */}
+      <div className={`autopilot-indicator ${autopilot ? 'active' : ''}`}>
+        <span className="autopilot-dot" />
+        {autopilot ? 'AUTOPILOT' : 'MANUAL'}
       </div>
 
+      {/* Collision flash overlay */}
+      {colliding && (
+        <div className="collision-overlay">
+          <div className="collision-text">
+            {'>> '}{collidingBlock?.toUpperCase?.() || collidingBlock}{' <<'}
+          </div>
+        </div>
+      )}
+
       {/* Instructions */}
-      {autoCrawl && (
-        <div className="hud-instructions">
-          [ WASD / Arrow Keys to steer ] &nbsp;&middot;&nbsp; [ Hit a block to navigate ]
-        </div>
-      )}
-      {!autoCrawl && (
-        <div className="hud-instructions">
-          [ Click any block to navigate ] &nbsp;&middot;&nbsp; [ Toggle auto-crawl to play ]
-        </div>
-      )}
+      <div className="hud-instructions">
+        [ A/D or ←/→ to steer ] &nbsp;&middot;&nbsp; [ Autopilot resumes after 3s idle ]
+        &nbsp;&middot;&nbsp; [ Collide with blocks to navigate ]
+      </div>
     </div>
   )
 }
