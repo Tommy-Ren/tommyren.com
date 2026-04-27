@@ -501,7 +501,7 @@ function createTextTexture(text) {
 }
 
 /* ── Main Game Scene ── */
-export default function GameScene() {
+export default function GameScene({ lowSpec = false }) {
   const {
     autopilot, colliding, collidingBlock, gameRunning,
     score, food, segmentCount,
@@ -528,6 +528,8 @@ export default function GameScene() {
   const flashTimerRef = useRef(0)
   const speedRef = useRef(vBase)
   const zoomRef = useRef(CAM_ELEVATION) // scroll wheel zoom
+  const touchSteerRef = useRef(0)
+  const touchSteerUntilRef = useRef(0)
 
   // Sync refs with store
   useEffect(() => { autopilotRef.current = autopilot }, [autopilot])
@@ -537,6 +539,8 @@ export default function GameScene() {
 
   // Scroll wheel zoom
   useEffect(() => {
+    if (lowSpec) return
+
     const onWheel = (e) => {
       e.preventDefault()
       const factor = Math.exp(e.deltaY * ZOOM_WHEEL_EXP)
@@ -547,7 +551,87 @@ export default function GameScene() {
     return () => {
       if (canvas) canvas.removeEventListener('wheel', onWheel)
     }
-  }, [])
+  }, [lowSpec])
+
+  // Touch controls: two-finger pinch zoom, one-finger swipe steer
+  useEffect(() => {
+    const canvas = document.querySelector('canvas')
+    if (!canvas) return
+
+    const SWIPE_TRIGGER_PX = 28
+    const SWIPE_STEER_MS = 220
+
+    let pinchDist = null
+    let swipeTracking = false
+    let swipeStartX = 0
+    let swipeStartY = 0
+
+    const getTouchDist = (a, b) => {
+      const dx = a.clientX - b.clientX
+      const dy = a.clientY - b.clientY
+      return Math.hypot(dx, dy)
+    }
+
+    const onTouchStart = (e) => {
+      if (e.touches.length === 2) {
+        pinchDist = getTouchDist(e.touches[0], e.touches[1])
+        swipeTracking = false
+        return
+      }
+      if (e.touches.length === 1) {
+        const t = e.touches[0]
+        swipeStartX = t.clientX
+        swipeStartY = t.clientY
+        swipeTracking = true
+      }
+    }
+
+    const onTouchMove = (e) => {
+      if (e.touches.length === 2) {
+        if (lowSpec) return
+        e.preventDefault()
+        const nextDist = getTouchDist(e.touches[0], e.touches[1])
+        if (pinchDist && nextDist > 0) {
+          const factor = pinchDist / nextDist
+          zoomRef.current = Math.max(ZOOM_MIN, zoomRef.current * factor)
+        }
+        pinchDist = nextDist
+        return
+      }
+
+      if (e.touches.length === 1 && swipeTracking) {
+        const t = e.touches[0]
+        const dx = t.clientX - swipeStartX
+        const dy = t.clientY - swipeStartY
+
+        if (Math.abs(dx) > SWIPE_TRIGGER_PX && Math.abs(dx) > Math.abs(dy) * 1.2) {
+          e.preventDefault()
+          touchSteerRef.current = dx > 0 ? 1 : -1
+          touchSteerUntilRef.current = performance.now() + SWIPE_STEER_MS
+          recordInput()
+          swipeStartX = t.clientX
+          swipeStartY = t.clientY
+        }
+      }
+    }
+
+    const onTouchEnd = (e) => {
+      if (e.touches.length < 2) pinchDist = null
+      if (e.touches.length === 0) swipeTracking = false
+    }
+
+    canvas.addEventListener('touchstart', onTouchStart, { passive: false })
+    canvas.addEventListener('touchmove', onTouchMove, { passive: false })
+    canvas.addEventListener('touchend', onTouchEnd, { passive: true })
+    canvas.addEventListener('touchcancel', onTouchEnd, { passive: true })
+
+    return () => {
+      canvas.removeEventListener('touchstart', onTouchStart)
+      canvas.removeEventListener('touchmove', onTouchMove)
+      canvas.removeEventListener('touchend', onTouchEnd)
+      canvas.removeEventListener('touchcancel', onTouchEnd)
+    }
+  }, [recordInput, lowSpec])
 
   // Render state
   const [renderState, setRenderState] = useState({
@@ -661,7 +745,11 @@ export default function GameScene() {
     // Steering
     if (!autopilotRef.current) {
       // Negate steer so A=left, D=right matches visual direction
-      heading -= steerRef.current * STEER_SPEED * delta
+      const now = performance.now()
+      const touchSteer = now < touchSteerUntilRef.current ? touchSteerRef.current : 0
+      if (!touchSteer) touchSteerRef.current = 0
+      const steerInput = touchSteer || steerRef.current
+      heading -= steerInput * STEER_SPEED * delta
     } else {
       // A* autopilot
       astarRecalcRef.current -= delta
@@ -819,7 +907,7 @@ export default function GameScene() {
     // Camera follow — zoom out when overlay is active, otherwise use scroll-wheel zoom
     const headPos = sphericalToCartesian(result.theta, result.phi)
     const normal = headPos.clone().normalize()
-    const targetZoom = activeOverlay ? OVERLAY_ZOOM : zoomRef.current
+    const targetZoom = activeOverlay ? OVERLAY_ZOOM : (lowSpec ? CAM_ELEVATION : zoomRef.current)
     const camTarget = normal.clone().multiplyScalar(SPHERE_RADIUS + targetZoom)
     camera.position.lerp(camTarget, delta * (activeOverlay ? 1.5 : 2.5))
     camera.lookAt(new THREE.Vector3(0, 0, 0))
@@ -836,8 +924,8 @@ export default function GameScene() {
 
   return (
     <>
-      <UniverseBackdrop />
-      <DistantPlanetField />
+      {!lowSpec && <UniverseBackdrop />}
+      {!lowSpec && <DistantPlanetField />}
 
       <ambientLight intensity={0.12} />
       <pointLight position={[0, 60, 0]} intensity={0.8} color="#00F0FF" distance={120} />

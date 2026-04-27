@@ -9,7 +9,7 @@ import OverlayPanel from '../components/OverlayPanel'
 import MusicToggle from '../components/MusicToggle'
 import useGameStore from '../store/gameStore'
 
-export default function HomePage() {
+export default function HomePage({ lowSpec = false }) {
   const colliding = useGameStore(s => s.colliding)
   const activeOverlay = useGameStore(s => s.activeOverlay)
 
@@ -17,7 +17,12 @@ export default function HomePage() {
     <div style={{ width: '100%', height: '100%', position: 'relative' }}>
       <TopNav />
       <Canvas
-        camera={{ position: [0, 55, 70], fov: 50, near: 0.1, far: 500000 }}
+        camera={{
+          position: [0, 55, 70],
+          fov: 50,
+          near: 0.1,
+          far: lowSpec ? 900 : 500000,
+        }}
         gl={{
           antialias: true,
           alpha: false,
@@ -28,8 +33,8 @@ export default function HomePage() {
         style={{ background: '#020817' }}
       >
         <color attach="background" args={['#020817']} />
-        <fog attach="fog" args={['#020817', 24000, 320000]} />
-        <GameScene />
+        <fog attach="fog" args={lowSpec ? ['#020817', 120, 900] : ['#020817', 24000, 320000]} />
+        <GameScene lowSpec={lowSpec} />
         <EffectComposer>
           <Bloom
             intensity={1.5}
