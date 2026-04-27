@@ -1,5 +1,5 @@
 import { useRef, useMemo, useCallback, useEffect, useState } from 'react'
-import { useFrame, useThree } from '@react-three/fiber'
+import { useFrame, useLoader, useThree } from '@react-three/fiber'
 import * as THREE from 'three'
 import useGameStore from '../store/gameStore'
 import {
@@ -11,6 +11,19 @@ import {
   findPathAStar,
   headingToward,
 } from '../utils/sphereMath'
+import earthTextureUrl from '../assets/planets/earth.jpg'
+import earthNightTextureUrl from '../assets/planets/earth_night.jpg'
+import saturnTextureUrl from '../assets/planets/saturn.jpg'
+import jupiterTextureUrl from '../assets/planets/jupiter.jpg'
+import ceresTextureUrl from '../assets/planets/ceres.jpg'
+import haumeaTextureUrl from '../assets/planets/haumea.jpg'
+import erisTextureUrl from '../assets/planets/eris.jpg'
+import makemakeTextureUrl from '../assets/planets/makemake.jpg'
+import marsTextureUrl from '../assets/planets/mars.jpg'
+import mercuryTextureUrl from '../assets/planets/mercury.jpg'
+import moonTextureUrl from '../assets/planets/moon.jpg'
+import sunTextureUrl from '../assets/planets/sun.jpg'
+import venusTextureUrl from '../assets/planets/venus.jpg'
 
 const SPHERE_RADIUS = 40
 const STEER_SPEED = 2.5
@@ -33,9 +46,8 @@ const CAM_ELEVATION = 30
 
 // Overlay zoom distance (how far camera pulls back when overlay is open)
 const OVERLAY_ZOOM = 55
-const ZOOM_MIN = 5
-const ZOOM_MAX = 420
-const ZOOM_WHEEL_SCALE = 0.08
+const ZOOM_MIN = 0.000001
+const ZOOM_WHEEL_EXP = 0.0016
 
 const NAV_BLOCKS = [
   { label: 'Resume', overlay: 'resume', theta: Math.PI * 0.3, phi: 0, color: '#FF0055' },
@@ -44,6 +56,115 @@ const NAV_BLOCKS = [
   { label: 'Projects', overlay: 'projects', theta: Math.PI * 0.7, phi: Math.PI * 1.2, color: '#FF0055' },
   { label: 'Contact', overlay: 'contact', theta: Math.PI * 0.5, phi: Math.PI * 1.6, color: '#FF0055' },
 ]
+
+const PLANET_LIBRARY = [
+  { name: 'Sun', textureUrl: sunTextureUrl, hasRing: false, isStar: true },
+  { name: 'Mercury', textureUrl: mercuryTextureUrl, hasRing: false },
+  { name: 'Venus', textureUrl: venusTextureUrl, hasRing: false },
+  { name: 'Earth', textureUrl: earthTextureUrl, hasRing: false },
+  { name: 'Earth Night', textureUrl: earthNightTextureUrl, hasRing: false },
+  { name: 'Moon', textureUrl: moonTextureUrl, hasRing: false },
+  { name: 'Mars', textureUrl: marsTextureUrl, hasRing: false },
+  { name: 'Ceres', textureUrl: ceresTextureUrl, hasRing: false },
+  { name: 'Jupiter', textureUrl: jupiterTextureUrl, hasRing: false },
+  { name: 'Saturn', textureUrl: saturnTextureUrl, hasRing: true },
+  { name: 'Haumea', textureUrl: haumeaTextureUrl, hasRing: false },
+  { name: 'Makemake', textureUrl: makemakeTextureUrl, hasRing: false },
+  { name: 'Eris', textureUrl: erisTextureUrl, hasRing: false },
+]
+
+const PLANET_DIST_MIN = 38000
+const PLANET_DIST_MAX = 150000
+const PLANET_GAP = 2800
+const PLANET_SIZE_MIN_MULT = 2
+const PLANET_SIZE_MAX_MULT = 200
+
+function randRange(min, max) {
+  return min + Math.random() * (max - min)
+}
+
+function makeFibonacciDirections(count) {
+  const dirs = []
+  const golden = Math.PI * (3 - Math.sqrt(5))
+  for (let i = 0; i < count; i++) {
+    const y = 1 - (i / (count - 1 || 1)) * 2
+    const radius = Math.sqrt(Math.max(0, 1 - y * y))
+    const theta = golden * i
+    dirs.push(new THREE.Vector3(Math.cos(theta) * radius, y, Math.sin(theta) * radius))
+  }
+  return dirs
+}
+
+function shuffleArray(items) {
+  const out = [...items]
+  for (let i = out.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1))
+    ;[out[i], out[j]] = [out[j], out[i]]
+  }
+  return out
+}
+
+function createRandomPlanetLayout() {
+  const earthReferenceRadius = SPHERE_RADIUS
+  const directions = shuffleArray(makeFibonacciDirections(PLANET_LIBRARY.length))
+  const placed = []
+
+  return PLANET_LIBRARY.map((planet, i) => {
+    const direction = directions[i]
+    const radius = earthReferenceRadius * randRange(PLANET_SIZE_MIN_MULT, PLANET_SIZE_MAX_MULT)
+
+    let distance = THREE.MathUtils.lerp(
+      PLANET_DIST_MIN,
+      PLANET_DIST_MAX,
+      i / (PLANET_LIBRARY.length - 1 || 1)
+    )
+    distance += randRange(-7000, 7000)
+    distance = Math.max(PLANET_DIST_MIN, distance)
+
+    let position = direction.clone().multiplyScalar(distance)
+
+    for (let attempt = 0; attempt < 240; attempt++) {
+      let overlap = false
+      for (const existing of placed) {
+        const minDist = existing.radius + radius + PLANET_GAP
+        const currentDist = position.distanceTo(existing.position)
+        if (currentDist < minDist) {
+          const pushOut = minDist - currentDist + randRange(200, 900)
+          position = direction.clone().multiplyScalar(position.length() + pushOut)
+          overlap = true
+          break
+        }
+      }
+      if (!overlap) break
+    }
+
+    placed.push({ position, radius })
+
+    return {
+      ...planet,
+      position: [position.x, position.y, position.z],
+      radius,
+      axialTiltDeg: randRange(0, 180),
+      spinSpeed: randRange(0.0007, 0.0038) * (Math.random() < 0.5 ? -1 : 1),
+      ring: planet.hasRing,
+      ringTilt: THREE.MathUtils.degToRad(randRange(8, 72)),
+      initialRotation: [
+        randRange(0, Math.PI * 2),
+        randRange(0, Math.PI * 2),
+        randRange(0, Math.PI * 2),
+      ],
+    }
+  })
+}
+
+function useConfiguredTexture(textureUrl) {
+  const texture = useLoader(THREE.TextureLoader, textureUrl)
+  useMemo(() => {
+    texture.colorSpace = THREE.SRGBColorSpace
+    texture.anisotropy = 8
+  }, [texture])
+  return texture
+}
 
 function buildStarLayer(count, minRadius, maxRadius, whiteMix = 0) {
   const positions = new Float32Array(count * 3)
@@ -114,6 +235,7 @@ function StarLayer({ count, minRadius, maxRadius, size, opacity, spinSpeed, whit
         transparent
         opacity={opacity}
         depthWrite={false}
+        depthTest={false}
         fog={false}
       />
     </points>
@@ -124,47 +246,126 @@ function UniverseBackdrop() {
   return (
     <group>
       <mesh>
-        <sphereGeometry args={[1400, 48, 48]} />
-        <meshBasicMaterial color="#020817" side={THREE.BackSide} fog={false} />
+        <sphereGeometry args={[360000, 48, 48]} />
+        <meshBasicMaterial
+          color="#020817"
+          side={THREE.BackSide}
+          fog={false}
+          depthWrite={false}
+          depthTest={false}
+        />
       </mesh>
       <mesh>
-        <sphereGeometry args={[1180, 48, 48]} />
+        <sphereGeometry args={[310000, 48, 48]} />
         <meshBasicMaterial
           color="#0c2f65"
           side={THREE.BackSide}
           fog={false}
           transparent
           opacity={0.18}
+          depthWrite={false}
+          depthTest={false}
         />
       </mesh>
       <StarLayer
-        count={4200}
-        minRadius={260}
-        maxRadius={1300}
-        size={1.35}
+        count={7600}
+        minRadius={8000}
+        maxRadius={335000}
+        size={9.5}
         opacity={0.82}
-        spinSpeed={0.0014}
+        spinSpeed={0.00006}
       />
       <StarLayer
-        count={260}
-        minRadius={280}
-        maxRadius={1250}
-        size={2.6}
+        count={520}
+        minRadius={12000}
+        maxRadius={325000}
+        size={18}
         opacity={0.95}
-        spinSpeed={-0.0023}
+        spinSpeed={-0.00008}
         whiteMix={0.22}
       />
     </group>
   )
 }
 
+function DistantPlanet({
+  textureUrl,
+  position,
+  radius,
+  spinSpeed = 0,
+  ring = false,
+  ringTilt = 0,
+  axialTiltDeg = 0,
+  isStar = false,
+  initialRotation = [0, 0, 0],
+}) {
+  const ref = useRef()
+  const texture = useConfiguredTexture(textureUrl)
+  const axialTilt = THREE.MathUtils.degToRad(axialTiltDeg)
+  const effectiveRingTilt = ringTilt || axialTilt
+
+  useFrame((_, delta) => {
+    if (ref.current && spinSpeed) {
+      ref.current.rotation.y += delta * spinSpeed
+    }
+  })
+
+  return (
+    <group position={position} rotation={initialRotation}>
+      <group rotation={[0, 0, axialTilt]}>
+        <mesh ref={ref}>
+          <sphereGeometry args={[radius, 48, 48]} />
+          {isStar ? (
+            <meshBasicMaterial map={texture} color="#ffe9be" fog={false} />
+          ) : (
+            <meshBasicMaterial
+              map={texture}
+              color="#ffffff"
+              fog={false}
+            />
+          )}
+        </mesh>
+        {ring && (
+          <mesh rotation={[Math.PI / 2.4, effectiveRingTilt, 0]}>
+            <torusGeometry args={[radius * 1.5, radius * 0.12, 2, 120]} />
+            <meshBasicMaterial color="#d9e3ff" transparent opacity={0.35} fog={false} />
+          </mesh>
+        )}
+      </group>
+    </group>
+  )
+}
+
+function DistantPlanetField() {
+  const randomLayout = useMemo(() => createRandomPlanetLayout(), [])
+
+  return (
+    <group>
+      {randomLayout.map((planet, i) => (
+        <DistantPlanet key={i} {...planet} />
+      ))}
+    </group>
+  )
+}
+
 /* ── Globe wireframe ── */
 function Globe() {
+  const earthTexture = useConfiguredTexture(earthTextureUrl)
+  const earthNightTexture = useConfiguredTexture(earthNightTextureUrl)
+
   return (
     <group>
       <mesh>
         <sphereGeometry args={[SPHERE_RADIUS - 0.05, 128, 128]} />
-        <meshStandardMaterial color="#080808" roughness={0.9} metalness={0.1} />
+        <meshStandardMaterial
+          map={earthTexture}
+          emissiveMap={earthNightTexture}
+          color="#ffffff"
+          roughness={0.88}
+          metalness={0.03}
+          emissive="#8aa6ff"
+          emissiveIntensity={0.32}
+        />
       </mesh>
       <mesh>
         <sphereGeometry args={[SPHERE_RADIUS, 48, 48]} />
@@ -338,8 +539,8 @@ export default function GameScene() {
   useEffect(() => {
     const onWheel = (e) => {
       e.preventDefault()
-      zoomRef.current += e.deltaY * ZOOM_WHEEL_SCALE
-      zoomRef.current = THREE.MathUtils.clamp(zoomRef.current, ZOOM_MIN, ZOOM_MAX)
+      const factor = Math.exp(e.deltaY * ZOOM_WHEEL_EXP)
+      zoomRef.current = Math.max(ZOOM_MIN, zoomRef.current * factor)
     }
     const canvas = document.querySelector('canvas')
     if (canvas) canvas.addEventListener('wheel', onWheel, { passive: false })
@@ -636,6 +837,7 @@ export default function GameScene() {
   return (
     <>
       <UniverseBackdrop />
+      <DistantPlanetField />
 
       <ambientLight intensity={0.12} />
       <pointLight position={[0, 60, 0]} intensity={0.8} color="#00F0FF" distance={120} />

@@ -17,17 +17,18 @@ export default function HomePage() {
     <div style={{ width: '100%', height: '100%', position: 'relative' }}>
       <TopNav />
       <Canvas
-        camera={{ position: [0, 55, 70], fov: 50, near: 0.1, far: 1800 }}
+        camera={{ position: [0, 55, 70], fov: 50, near: 0.1, far: 500000 }}
         gl={{
           antialias: true,
           alpha: false,
+          logarithmicDepthBuffer: true,
           toneMapping: THREE.ACESFilmicToneMapping,
           toneMappingExposure: 1.2,
         }}
         style={{ background: '#020817' }}
       >
         <color attach="background" args={['#020817']} />
-        <fog attach="fog" args={['#020817', 140, 620]} />
+        <fog attach="fog" args={['#020817', 24000, 320000]} />
         <GameScene />
         <EffectComposer>
           <Bloom
