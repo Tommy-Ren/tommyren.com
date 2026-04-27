@@ -1,6 +1,6 @@
 import * as THREE from 'three'
 
-const SPHERE_RADIUS = 8
+const SPHERE_RADIUS = 40
 
 // ── Convert spherical (theta, phi) to Cartesian position on sphere ──
 export function sphericalToCartesian(theta, phi, radius = SPHERE_RADIUS) {
@@ -122,7 +122,7 @@ export function randomSpherePoint(avoidPoints = [], minDist = 1.5) {
 }
 
 // ── A* Pathfinding on Sphere ──
-const GRID_RES = 24 // grid resolution for A*
+const GRID_RES = 48 // grid resolution for A* (doubled for finer avoidance on R=40 sphere)
 
 function coordToGrid(theta, phi) {
   const row = Math.round((theta / Math.PI) * (GRID_RES - 1))
@@ -171,8 +171,9 @@ export function findPathAStar(startTheta, startPhi, goalTheta, goalPhi, obstacle
   for (const obs of obstacles) {
     const g = coordToGrid(obs.theta, obs.phi)
     // Block a wider area around each obstacle to prevent snake suicide
-    for (let dr = -2; dr <= 2; dr++) {
-      for (let dc = -2; dc <= 2; dc++) {
+    // At GRID_RES=48, each cell ≈ 2.6 arc-units, so ±5 cells ≈ 13 units clearance
+    for (let dr = -5; dr <= 5; dr++) {
+      for (let dc = -5; dc <= 5; dc++) {
         const nr = g.row + dr
         const nc = ((g.col + dc) % GRID_RES + GRID_RES) % GRID_RES
         if (nr >= 0 && nr < GRID_RES) {

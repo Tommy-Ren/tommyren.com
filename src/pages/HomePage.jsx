@@ -4,25 +4,30 @@ import { GlitchMode } from 'postprocessing'
 import * as THREE from 'three'
 import GameScene from '../components/GameScene'
 import HUD from '../components/HUD'
+import TopNav from '../components/TopNav'
+import OverlayPanel from '../components/OverlayPanel'
+import MusicToggle from '../components/MusicToggle'
 import useGameStore from '../store/gameStore'
 
 export default function HomePage() {
   const colliding = useGameStore(s => s.colliding)
+  const activeOverlay = useGameStore(s => s.activeOverlay)
 
   return (
     <div style={{ width: '100%', height: '100%', position: 'relative' }}>
+      <TopNav />
       <Canvas
-        camera={{ position: [0, 12, 16], fov: 50, near: 0.1, far: 200 }}
+        camera={{ position: [0, 55, 70], fov: 50, near: 0.1, far: 1800 }}
         gl={{
           antialias: true,
           alpha: false,
           toneMapping: THREE.ACESFilmicToneMapping,
           toneMappingExposure: 1.2,
         }}
-        style={{ background: '#050505' }}
+        style={{ background: '#020817' }}
       >
-        <color attach="background" args={['#050505']} />
-        <fog attach="fog" args={['#050505', 30, 60]} />
+        <color attach="background" args={['#020817']} />
+        <fog attach="fog" args={['#020817', 140, 620]} />
         <GameScene />
         <EffectComposer>
           <Bloom
@@ -42,7 +47,9 @@ export default function HomePage() {
           )}
         </EffectComposer>
       </Canvas>
-      <HUD />
+      {!activeOverlay && <HUD />}
+      <OverlayPanel />
+      <MusicToggle />
     </div>
   )
 }

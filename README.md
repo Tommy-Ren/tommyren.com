@@ -1,82 +1,93 @@
-# 🌐 WebGPU Cyber-Sphere Portfolio
+# Cyber-Sphere Portfolio
 
-An ultra-modern, interactive 3D personal portfolio built with Three.js and React Three Fiber. The experience takes place on a continuously rotating, cyberpunk-styled **spherical world** — a neon snake crawls across the globe, collecting food and colliding with portfolio section blocks to navigate.
+Interactive 3D portfolio built with React, Vite, Three.js, and React Three Fiber.
+The main experience is a snake-style game wrapped around a sphere, with portfolio
+content shown in overlays that can be opened either by collision in the scene or
+from the top navigation.
 
-## 🎨 Color Palette
+## Current Project State
 
-| Role | Color | Hex |
-|------|-------|-----|
-| Background / Void | Deep Void Black | `#050505` |
-| Primary (Snake) | Neon Fluorescent Cyan | `#00F0FF` |
-| Highlight (Nav Blocks) | Neon Pink | `#FF0055` |
-| Food / Secondary | Lime Green | `#ADFF00` |
+- Single app repository (Vite + React, not a monorepo).
+- `src/App.jsx` currently renders only `HomePage`.
+- Portfolio sections are overlay panels, not route transitions.
+- Legacy route page components still exist in `src/pages`, but are not mounted.
 
-## 🎮 Controls
+## Features
 
-- **A / ← Arrow** — Steer left
-- **D / → Arrow** — Steer right
-- The snake moves forward continuously — you can only steer, not stop
-- **Autopilot** engages automatically after 3 seconds of no input (A* pathfinding to nearest food)
-- **Manual override** — any key press instantly disables autopilot
+- 3D spherical world (`radius = 40`) with custom spherical movement math.
+- Snake movement with:
+  - Steering: `A/D` or `Left/Right`
+  - Throttle: `W/S` or `Up/Down`
+  - Dynamic speed model (`vMin`, `vBase`, `vMax`) with accel/brake/friction curves
+- Food collection:
+  - Score increases by 10
+  - Snake grows by 1 segment
+  - Food respawns away from nav blocks and current head position
+- Autopilot:
+  - Enabled by default
+  - Re-enables after 3 seconds of inactivity
+  - Uses A* over a spherical grid with obstacle expansion around nav blocks
+- Collision behavior:
+  - Hitting a nav block triggers glitch feedback
+  - Game state resets
+  - Corresponding overlay opens (`about`, `projects`, `resume`, `contact`)
+- HUD and UI:
+  - Score display
+  - Autopilot/manual indicator
+  - Live speed gauge
+  - Fixed top navigation with direct overlay access
+  - Mouse wheel camera zoom
 
-## 🌍 Spherical World
+## Tech Stack
 
-The game takes place on a 3D sphere. Moving in any direction will eventually loop back to the starting point. Portfolio section blocks and food items are scattered across the globe surface using spherical coordinates.
+- React 18
+- Vite 5
+- Three.js + @react-three/fiber
+- @react-three/postprocessing + postprocessing
+- Zustand
 
-## 💥 Collision Mechanics
+## File Map
 
-When the snake hits a portfolio block:
-1. Forward motion halts
-2. 0.5-second visual feedback (glitch effect, screen shake, rapid flashing)
-3. Page transitions to the corresponding section
-
-## 🧠 A* Pathfinding
-
-When autopilot is active, the snake uses A* pathfinding mapped over a discretized spherical grid to navigate toward the nearest food item, avoiding nav blocks.
-
-## 🛠 Tech Stack
-
-- **React 18** + React Router
-- **Three.js** (r172) + React Three Fiber (R3F)
-- **@react-three/postprocessing** — Bloom + Glitch passes
-- **Zustand** — State management
-- **Vite 5** — Build tooling
-- Spherical coordinate math (Three.js `Spherical` / custom utils)
-
-## 📁 Project Structure
-
-```
+```text
 src/
-├── main.jsx              # Entry point with BrowserRouter
-├── App.jsx               # React Router routes
-├── index.css             # Cyberpunk CSS (scanlines, glitch, HUD)
-├── store/
-│   └── gameStore.js      # Zustand store (game state, autopilot, collision)
-├── utils/
-│   └── sphereMath.js     # Spherical math, A* pathfinding, movement
-├── components/
-│   ├── GameScene.jsx     # Core 3D scene (globe, snake, food, nav blocks)
-│   └── HUD.jsx           # Overlay UI (score, autopilot indicator, instructions)
-└── pages/
-    ├── HomePage.jsx      # R3F Canvas with post-processing
-    ├── ResumePage.jsx
-    ├── BackgroundPage.jsx
-    ├── PortfolioPage.jsx
-    ├── ProjectsPage.jsx
-    └── CVPage.jsx
+  App.jsx                    # Renders HomePage
+  main.jsx                   # React entrypoint
+  index.css                  # Global theme + HUD/nav/overlay styles
+  components/
+    GameScene.jsx            # Core game loop, snake, camera, collisions
+    HUD.jsx                  # Score/autopilot/speed UI
+    TopNav.jsx               # Accessible top nav for overlays
+    OverlayPanel.jsx         # About/Projects/Resume/Contact content panel
+  store/
+    gameStore.js             # Zustand state and actions
+  utils/
+    sphereMath.js            # Spherical math + A* helpers
+  pages/
+    HomePage.jsx             # Main canvas page (active)
+    *.jsx                    # Legacy route-style pages (currently unused)
+public/
+  music/*.mp3                # Audio assets (currently not wired in code)
+  sounds/*.mp3               # Audio assets (currently not wired in code)
 ```
 
-## � Getting Started
+## Run Locally
 
 ```bash
 npm install
 npm run dev
 ```
 
-## 📦 Build
+## Build
 
 ```bash
 npm run build
 npm run preview
 ```
+
+## Notes
+
+- The historical wording "WebGPU" appears in docs, but this implementation runs on
+  Three.js/WebGL through React Three Fiber.
+- `react-router-dom` is installed, and legacy route pages exist, but routing is not
+  currently used by `App.jsx`.
 
