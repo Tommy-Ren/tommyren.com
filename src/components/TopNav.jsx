@@ -16,6 +16,7 @@ export default function TopNav() {
   const score = useGameStore(s => s.score)
   const autopilot = useGameStore(s => s.autopilot)
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
+  const scoreText = Number(score || 0).toLocaleString('en-US')
 
   useEffect(() => {
     setMobileMenuOpen(false)
@@ -67,7 +68,7 @@ export default function TopNav() {
         </ul>
         <div className="top-nav-status">
           <div className="top-nav-score">
-            SCORE: {String(score).padStart(6, '0')}
+            SCORE: {scoreText}
           </div>
           {autopilot && (
             <div className="top-nav-autopilot">

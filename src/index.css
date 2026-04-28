@@ -290,7 +290,7 @@ html, body, #root {
 }
 
 .top-nav-status {
-  min-width: 170px;
+  min-width: 220px;
   display: flex;
   flex-direction: column;
   align-items: flex-end;
@@ -304,6 +304,10 @@ html, body, #root {
   letter-spacing: 1.6px;
   color: var(--secondary-a);
   text-shadow: 0 0 10px var(--secondary-a), 0 0 18px rgba(173, 255, 0, 0.45);
+  white-space: nowrap;
+  max-width: 42vw;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .top-nav-autopilot {
@@ -855,7 +859,7 @@ canvas {
   }
 
   .top-nav-status {
-    min-width: 112px;
+    min-width: 142px;
     gap: 3px;
   }
 

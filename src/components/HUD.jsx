@@ -4,9 +4,18 @@ export default function HUD() {
   const colliding = useGameStore(s => s.colliding)
   const collidingBlock = useGameStore(s => s.collidingBlock)
   const currentSpeed = useGameStore(s => s.currentSpeed)
+  const vMin = useGameStore(s => s.vMin)
+  const vBase = useGameStore(s => s.vBase)
   const vMax = useGameStore(s => s.vMax)
 
-  const speedPct = Math.round((currentSpeed / vMax) * 100)
+  const BASE_CRUISE_PCT = 10
+  const minBand = 1
+  const aboveBaseRange = Math.max(0.0001, vMax - vBase)
+  const belowBaseRange = Math.max(0.0001, vBase - vMin)
+  const speedPctRaw = currentSpeed >= vBase
+    ? BASE_CRUISE_PCT + ((currentSpeed - vBase) / aboveBaseRange) * (100 - BASE_CRUISE_PCT)
+    : BASE_CRUISE_PCT - ((vBase - currentSpeed) / belowBaseRange) * (BASE_CRUISE_PCT - minBand)
+  const speedPct = Math.round(Math.max(minBand, Math.min(100, speedPctRaw)))
 
   return (
     <div className={`hud ${colliding ? 'hud-collision' : ''}`}>

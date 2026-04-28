@@ -13,6 +13,7 @@ import {
 } from '../utils/sphereMath'
 import earthTextureUrl from '../assets/planets/earth.jpg'
 import earthNightTextureUrl from '../assets/planets/earth_night.jpg'
+import earthLowTextureUrl from '../assets/planets/low/earth_low.jpg'
 import saturnTextureUrl from '../assets/planets/saturn.jpg'
 import jupiterTextureUrl from '../assets/planets/jupiter.jpg'
 import ceresTextureUrl from '../assets/planets/ceres.jpg'
@@ -27,16 +28,51 @@ import venusTextureUrl from '../assets/planets/venus.jpg'
 
 const SPHERE_RADIUS = 40
 const STEER_SPEED = 2.5
-const SEGMENT_SPACING = 1.25
-const FOOD_COLLECT_DIST = 4.0 // 5x from 0.8
-const BLOCK_COLLECT_DIST = 6.0 // 5x from 1.2
+const BASE_SEGMENT_SPACING = 1.25 / 6
+const BASE_FOOD_COLLECT_DIST = 4.0 / 6
+const BASE_BLOCK_COLLECT_DIST = 2.75
 const TRAIL_LENGTH = 600 // increased for longer snake + bigger world
-const SNAKE_SIZE_MULT = 0.68
+const BASE_SNAKE_SIZE_MULT = 0.68 / 6
+const FOOD_SPAWN_INTERVAL = 1.65
+const FOOD_INITIAL_COUNT = 12
+const FOOD_MAX_SPAWN_ATTEMPTS = 5
+const FOOD_MIN_SPAWN_DIST = 1.6
+const FOOD_NAV_SAFE_RADIUS = BASE_BLOCK_COLLECT_DIST + 1.9
+const FOOD_FOOD_SAFE_RADIUS = 1.2
+const MAX_FOOD_COUNT = Number.POSITIVE_INFINITY
+const MAX_FOOD_COUNT_LOW_SPEC = 64
+const FOOD_SCALE_EXP = 0.18
+const FOOD_COLLISION_SCALE_EXP = 0.16
+const SPEED_GROWTH_LOG_FACTOR = 0.18
+const SPEED_GROWTH_MAX_MULT = 2.4
+const STUCK_PROGRESS_EPS = 0.025
+const STUCK_TIMEOUT = 2.4
+const TARGET_COOLDOWN_MS = 5200
+const TARGET_NAV_HARD_EXCLUSION = FOOD_NAV_SAFE_RADIUS + 1.35
+const NAV_LOOKAHEAD_SECONDS = 0.9
+const NAV_LOOKAHEAD_SAMPLES = [0.3, 0.6, 1.0]
+const NAV_WAYPOINT_SAFE_MULT = 2.2
+const NAV_EMERGENCY_SPEED_FACTOR = 0.9
+const NAV_EMERGENCY_MIN_EXTRA = 6.3
+const AUTOPILOT_TURN_DAMP_EXP = 0.2
+const AUTOPILOT_TURN_DAMP_MIN = 0.35
+const AUTOPILOT_SOFT_TURN_ANGLE = Math.PI * 0.55
+const AUTOPILOT_HARD_UTURN_ANGLE = Math.PI * 0.82
+const MAX_FRAME_DELTA = 0.05
+const FOOD_WINDOW_RECALC_INTERVAL = 0.22
+const FOOD_WINDOW_SIZE = 180
+const FOOD_WINDOW_SIZE_LOW_SPEC = 64
+const FOOD_AUTOPILOT_SIZE = 120
+const FOOD_AUTOPILOT_SIZE_LOW_SPEC = 40
+const FOOD_COLLISION_SIZE = 72
+const FOOD_COLLISION_SIZE_LOW_SPEC = 24
+const MAX_FOOD_SPAWNS_PER_FRAME = 2
+const MAX_FOOD_SPAWNS_PER_FRAME_LOW_SPEC = 1
 
 // Physics speed constants
-const V_BASE = 6.75
-const V_MAX = 27.0
-const V_MIN = 3.0
+const V_BASE = 5.0625
+const V_MAX = 20.25
+const V_MIN = 2.25
 const ACCEL_RATE = 14.0
 const BRAKE_RATE = 10.0
 const FRICTION = 5.0
@@ -48,6 +84,14 @@ const CAM_ELEVATION = 30
 const OVERLAY_ZOOM = 55
 const ZOOM_MIN = 0.000001
 const ZOOM_WHEEL_EXP = 0.0016
+const AUTOPILOT_RECALC_INTERVAL = 0.1
+const SELF_COLLIDE_SEGMENT_SKIP = 4
+
+const FOOD_VARIANTS = [
+  { kind: 'small', weight: 0.56, basePoints: 1, sizeRatio: 0.58, color: '#44d8ff' },
+  { kind: 'medium', weight: 0.29, basePoints: 5, sizeRatio: 1.0, color: '#a7ff3f' },
+  { kind: 'large', weight: 0.15, basePoints: 10, sizeRatio: 1.52, color: '#ff8e3b' },
+]
 
 const NAV_BLOCKS = [
   { label: 'Resume', overlay: 'resume', theta: Math.PI * 0.3, phi: 0, color: '#FF0055' },
@@ -81,6 +125,272 @@ const PLANET_SIZE_MAX_MULT = 200
 
 function randRange(min, max) {
   return min + Math.random() * (max - min)
+}
+
+function normalizeAngleDiff(angle) {
+  let next = angle
+  while (next > Math.PI) next -= Math.PI * 2
+  while (next < -Math.PI) next += Math.PI * 2
+  return next
+}
+
+function pickFoodVariant() {
+  const roll = Math.random()
+  let cursor = 0
+  for (const variant of FOOD_VARIANTS) {
+    cursor += variant.weight
+    if (roll <= cursor) return variant
+  }
+  return FOOD_VARIANTS[FOOD_VARIANTS.length - 1]
+}
+
+function createFoodId() {
+  return `food-${Date.now()}-${Math.round(Math.random() * 1e9)}`
+}
+
+function spawnFood({ snakeSegments = [], foods = [], extraAvoid = [], snakeScale = 1 } = {}) {
+  const avoidanceScale = Math.pow(Math.max(1, snakeScale), 0.34)
+  const snakeAvoidDist = Math.max(
+    FOOD_MIN_SPAWN_DIST,
+    BASE_SNAKE_SIZE_MULT * avoidanceScale * 2.6
+  )
+
+  for (let attempt = 0; attempt < FOOD_MAX_SPAWN_ATTEMPTS; attempt++) {
+    const variant = pickFoodVariant()
+    const point = randomSpherePoint([], 0)
+    if (!point) continue
+
+    let isBlocked = false
+
+    for (const block of NAV_BLOCKS) {
+      if (greatCircleDistance(point.theta, point.phi, block.theta, block.phi) < FOOD_NAV_SAFE_RADIUS) {
+        isBlocked = true
+        break
+      }
+    }
+    if (isBlocked) continue
+
+    for (const seg of snakeSegments) {
+      if (greatCircleDistance(point.theta, point.phi, seg.theta, seg.phi) < snakeAvoidDist) {
+        isBlocked = true
+        break
+      }
+    }
+    if (isBlocked) continue
+
+    for (const existingFood of foods) {
+      if (greatCircleDistance(point.theta, point.phi, existingFood.theta, existingFood.phi) < FOOD_FOOD_SAFE_RADIUS) {
+        isBlocked = true
+        break
+      }
+    }
+    if (isBlocked) continue
+
+    for (const extra of extraAvoid) {
+      if (greatCircleDistance(point.theta, point.phi, extra.theta, extra.phi) < FOOD_MIN_SPAWN_DIST) {
+        isBlocked = true
+        break
+      }
+    }
+    if (isBlocked) continue
+
+    return {
+      id: createFoodId(),
+      theta: point.theta,
+      phi: point.phi,
+      kind: variant.kind,
+      basePoints: variant.basePoints,
+      sizeRatio: variant.sizeRatio,
+      color: variant.color,
+      createdAt: Date.now(),
+    }
+  }
+  return null
+}
+
+function computeSnakeSpeedProfile(snakeScale) {
+  const scale = Math.max(1, snakeScale)
+  const growth = 1 + SPEED_GROWTH_LOG_FACTOR * Math.log2(scale)
+  const multiplier = THREE.MathUtils.clamp(growth, 1, SPEED_GROWTH_MAX_MULT)
+  const vBase = V_BASE * multiplier
+  const vMax = V_MAX * multiplier
+  const vMin = V_MIN * multiplier
+  return { vMin, vBase, vMax }
+}
+
+function computeFoodScaleFactor(snakeScale, exponent = FOOD_SCALE_EXP) {
+  return Math.pow(Math.max(1, snakeScale), exponent)
+}
+
+function computeSegmentRadius(index, snakeScale) {
+  const baseScale = index === 0 ? 1.14 : Math.max(0.5, 0.96 - index * 0.012)
+  return baseScale * BASE_SNAKE_SIZE_MULT * snakeScale
+}
+
+function computeSelfCollisionDistance(headIndex, bodyIndex, snakeScale) {
+  const headRadius = computeSegmentRadius(headIndex, snakeScale)
+  const bodyRadius = computeSegmentRadius(bodyIndex, snakeScale)
+  return Math.max(0.11, (headRadius + bodyRadius) * 0.9)
+}
+
+function computeBlockCollisionDistance(snakeScale) {
+  const scaleFactor = Math.pow(Math.max(1, snakeScale), 0.22)
+  return BASE_BLOCK_COLLECT_DIST * scaleFactor
+}
+
+function chordToArcDistance(chordLength, sphereRadius = SPHERE_RADIUS) {
+  const safeRatio = THREE.MathUtils.clamp(chordLength / (2 * sphereRadius), 0, 1)
+  return 2 * sphereRadius * Math.asin(safeRatio)
+}
+
+function computeFoodCollisionDistance(snakeScale, foodSizeRatio) {
+  const headRadius = computeSegmentRadius(0, snakeScale)
+  const foodRadius = computeFoodRenderRadius(snakeScale, foodSizeRatio)
+  const touchChord = (headRadius + foodRadius) * 0.96
+  const visualTouchDist = chordToArcDistance(touchChord)
+  const legacyDist = BASE_FOOD_COLLECT_DIST
+    * computeFoodScaleFactor(snakeScale, FOOD_COLLISION_SCALE_EXP)
+    * Math.max(0.6, foodSizeRatio)
+  return Math.max(legacyDist, visualTouchDist)
+}
+
+function computeFoodRenderRadius(snakeScale, foodSizeRatio) {
+  const growth = computeFoodScaleFactor(snakeScale, FOOD_SCALE_EXP)
+  return BASE_SNAKE_SIZE_MULT * growth * foodSizeRatio
+}
+
+function pushNearestFood(bucket, entry, maxCount) {
+  if (maxCount <= 0) return
+  if (bucket.length < maxCount) {
+    bucket.push(entry)
+    return
+  }
+
+  let farthestIdx = 0
+  let farthestDist = bucket[0].dist
+  for (let i = 1; i < bucket.length; i++) {
+    if (bucket[i].dist > farthestDist) {
+      farthestDist = bucket[i].dist
+      farthestIdx = i
+    }
+  }
+
+  if (entry.dist < farthestDist) {
+    bucket[farthestIdx] = entry
+  }
+}
+
+function selectNearestFoods(foods, head, maxCount) {
+  if (!foods || foods.length === 0 || maxCount <= 0) return []
+  if (foods.length <= maxCount) return foods
+
+  const nearest = []
+  for (const item of foods) {
+    const dist = greatCircleDistance(head.theta, head.phi, item.theta, item.phi)
+    pushNearestFood(nearest, { item, dist }, maxCount)
+  }
+
+  nearest.sort((a, b) => a.dist - b.dist)
+  return nearest.map((entry) => entry.item)
+}
+
+function sampleBodyObstacles(segments) {
+  const sampled = []
+  if (!segments || segments.length <= 8) return sampled
+  for (let i = 8; i < segments.length; i += 2) {
+    const seg = segments[i]
+    sampled.push({ theta: seg.theta, phi: seg.phi, clearanceCells: 2 })
+  }
+  return sampled
+}
+
+function chooseFoodTarget(
+  foods,
+  head,
+  bodyObstacles = [],
+  { cooldowns, now = 0, bodyUnsafeDist = 1.6, heading = 0, snakeScale = 1 } = {}
+) {
+  if (!foods || foods.length === 0) return null
+
+  const candidates = []
+  for (const item of foods) {
+    if (cooldowns?.has(item.id) && cooldowns.get(item.id) > now) continue
+
+    const dist = greatCircleDistance(head.theta, head.phi, item.theta, item.phi)
+    let nearestBodyDist = Infinity
+    for (const body of bodyObstacles) {
+      const d = greatCircleDistance(item.theta, item.phi, body.theta, body.phi)
+      if (d < nearestBodyDist) nearestBodyDist = d
+      if (nearestBodyDist < bodyUnsafeDist * 0.45) break
+    }
+
+    let nearestNavDist = Infinity
+    for (const block of NAV_BLOCKS) {
+      const d = greatCircleDistance(item.theta, item.phi, block.theta, block.phi)
+      if (d < nearestNavDist) nearestNavDist = d
+    }
+
+    candidates.push({
+      item,
+      dist,
+      nearestBodyDist,
+      nearestNavDist,
+      navRisk: nearestNavDist < TARGET_NAV_HARD_EXCLUSION,
+    })
+  }
+
+  if (candidates.length === 0) {
+    // All items were on cooldown, fallback to nearest item by raw utility.
+    let fallback = foods[0]
+    let fallbackScore = Infinity
+    for (const item of foods) {
+      const dist = greatCircleDistance(head.theta, head.phi, item.theta, item.phi)
+      const utility = dist / (1 + item.basePoints * 0.65)
+      if (utility < fallbackScore) {
+        fallback = item
+        fallbackScore = utility
+      }
+    }
+    return fallback
+  }
+
+  // Prefer food away from nav blocks to avoid sharp near-nav turns.
+  const saferCandidates = candidates.filter((c) => !c.navRisk)
+  const pool = saferCandidates.length > 0 ? saferCandidates : candidates
+
+  let best = pool[0].item
+  let bestScore = Infinity
+  const scale = Math.max(1, snakeScale)
+  const turnPenaltyStrength = 0.95 + Math.log2(scale) * 0.75
+  for (const candidate of pool) {
+    const crowdPenalty = candidate.nearestBodyDist < bodyUnsafeDist
+      ? 1 + (bodyUnsafeDist - candidate.nearestBodyDist) * 1.8
+      : 1
+
+    const navUnsafeDist = FOOD_NAV_SAFE_RADIUS + 0.75
+    const navPenalty = candidate.nearestNavDist < navUnsafeDist
+      ? 1 + (navUnsafeDist - candidate.nearestNavDist) * 3.2
+      : 1
+
+    const toward = headingToward(head.theta, head.phi, candidate.item.theta, candidate.item.phi)
+    const turnDiff = Math.abs(normalizeAngleDiff(toward - heading))
+    const softTurnPenalty = turnDiff > AUTOPILOT_SOFT_TURN_ANGLE
+      ? 1 + ((turnDiff - AUTOPILOT_SOFT_TURN_ANGLE) / (Math.PI - AUTOPILOT_SOFT_TURN_ANGLE)) * turnPenaltyStrength
+      : 1
+    const hardUTurnPenalty = turnDiff > AUTOPILOT_HARD_UTURN_ANGLE
+      ? 4 + Math.log2(scale) * 2
+      : 1
+
+    const utility = (
+      candidate.dist * crowdPenalty * navPenalty * softTurnPenalty * hardUTurnPenalty
+    ) / (1 + candidate.item.basePoints * 0.65)
+    if (utility < bestScore) {
+      best = candidate.item
+      bestScore = utility
+    }
+  }
+
+  return best || null
 }
 
 function makeFibonacciDirections(count) {
@@ -157,12 +467,16 @@ function createRandomPlanetLayout() {
   })
 }
 
-function useConfiguredTexture(textureUrl) {
+function useConfiguredTexture(textureUrl, { lowSpec = false } = {}) {
   const texture = useLoader(THREE.TextureLoader, textureUrl)
   useMemo(() => {
     texture.colorSpace = THREE.SRGBColorSpace
-    texture.anisotropy = 8
-  }, [texture])
+    texture.anisotropy = lowSpec ? 1 : 8
+    texture.minFilter = lowSpec ? THREE.LinearFilter : THREE.LinearMipmapLinearFilter
+    texture.magFilter = THREE.LinearFilter
+    texture.generateMipmaps = !lowSpec
+    texture.needsUpdate = true
+  }, [texture, lowSpec])
   return texture
 }
 
@@ -235,7 +549,7 @@ function StarLayer({ count, minRadius, maxRadius, size, opacity, spinSpeed, whit
         transparent
         opacity={opacity}
         depthWrite={false}
-        depthTest={false}
+        depthTest={true}
         fog={false}
       />
     </points>
@@ -248,23 +562,11 @@ function UniverseBackdrop() {
       <mesh>
         <sphereGeometry args={[360000, 48, 48]} />
         <meshBasicMaterial
-          color="#020817"
+          color="#041235"
           side={THREE.BackSide}
           fog={false}
           depthWrite={false}
-          depthTest={false}
-        />
-      </mesh>
-      <mesh>
-        <sphereGeometry args={[310000, 48, 48]} />
-        <meshBasicMaterial
-          color="#0c2f65"
-          side={THREE.BackSide}
-          fog={false}
-          transparent
-          opacity={0.18}
-          depthWrite={false}
-          depthTest={false}
+          depthTest={true}
         />
       </mesh>
       <StarLayer
@@ -349,14 +651,14 @@ function DistantPlanetField() {
 }
 
 /* ── Globe wireframe ── */
-function Globe() {
-  const earthTexture = useConfiguredTexture(earthTextureUrl)
-  const earthNightTexture = useConfiguredTexture(earthNightTextureUrl)
+function GlobeFull() {
+  const earthTexture = useConfiguredTexture(earthTextureUrl, { lowSpec: false })
+  const earthNightTexture = useConfiguredTexture(earthNightTextureUrl, { lowSpec: false })
 
   return (
     <group>
       <mesh>
-        <sphereGeometry args={[SPHERE_RADIUS - 0.05, 128, 128]} />
+        <sphereGeometry args={[SPHERE_RADIUS - 0.05, 96, 96]} />
         <meshStandardMaterial
           map={earthTexture}
           emissiveMap={earthNightTexture}
@@ -368,33 +670,57 @@ function Globe() {
         />
       </mesh>
       <mesh>
-        <sphereGeometry args={[SPHERE_RADIUS, 48, 48]} />
+        <sphereGeometry args={[SPHERE_RADIUS, 42, 42]} />
         <meshBasicMaterial color="#00F0FF" wireframe transparent opacity={0.04} />
       </mesh>
       <mesh rotation={[Math.PI / 2, 0, 0]}>
-        <torusGeometry args={[SPHERE_RADIUS + 0.02, 0.04, 8, 256]} />
+        <torusGeometry args={[SPHERE_RADIUS + 0.02, 0.04, 8, 220]} />
         <meshBasicMaterial color="#00F0FF" transparent opacity={0.12} />
       </mesh>
     </group>
   )
 }
 
+function GlobeLow() {
+  const earthTexture = useConfiguredTexture(earthLowTextureUrl, { lowSpec: true })
+
+  return (
+    <group>
+      <mesh>
+        <sphereGeometry args={[SPHERE_RADIUS - 0.05, 28, 28]} />
+        <meshStandardMaterial
+          map={earthTexture}
+          color="#ffffff"
+          roughness={0.92}
+          metalness={0.02}
+          emissive="#1a2b46"
+          emissiveIntensity={0.12}
+        />
+      </mesh>
+      <mesh>
+        <sphereGeometry args={[SPHERE_RADIUS, 20, 20]} />
+        <meshBasicMaterial color="#00F0FF" wireframe transparent opacity={0.05} />
+      </mesh>
+    </group>
+  )
+}
+
 /* ── Snake segment on sphere ── */
-function SnakeSegment({ theta, phi, heading, index, isHead, flash }) {
+function SnakeSegment({ theta, phi, heading, index, isHead, flash, snakeScale = 1, lowSpec = false }) {
   const orient = useMemo(
     () => getOrientationOnSphere(theta, phi, heading),
     [theta, phi, heading]
   )
   const baseColor = isHead ? '#00F0FF' : '#00C8DD'
   const emissiveColor = isHead ? '#00F0FF' : '#008899'
-  const intensity = isHead ? 3 : Math.max(0.4, 1.5 - index * 0.04)
+  const intensity = isHead ? 3.2 : Math.max(0.35, 1.35 - index * 0.03)
   const opacity = Math.max(0.3, 1 - index * 0.02)
-  const baseScale = isHead ? 1.2 : Math.max(0.5, 1.0 - index * 0.015)
-  const scale = baseScale * SNAKE_SIZE_MULT
+  const baseScale = isHead ? 1.14 : Math.max(0.5, 0.96 - index * 0.012)
+  const scale = baseScale * BASE_SNAKE_SIZE_MULT * snakeScale
 
   return (
     <mesh position={orient.position} quaternion={orient.quaternion}>
-      <sphereGeometry args={[scale, 8, 8]} />
+      <sphereGeometry args={[scale, lowSpec ? 5 : 9, lowSpec ? 5 : 9]} />
       <meshStandardMaterial
         color={flash ? '#FFFFFF' : baseColor}
         emissive={flash ? '#FFFFFF' : emissiveColor}
@@ -407,27 +733,34 @@ function SnakeSegment({ theta, phi, heading, index, isHead, flash }) {
 }
 
 /* ── Food on sphere ── */
-function FoodItem({ theta, phi }) {
+function FoodItem({ food, snakeScale = 1, lowSpec = false }) {
   const ref = useRef()
+  const { theta, phi, color = '#ADFF00', sizeRatio = 1 } = food
   const baseOrient = useMemo(
     () => getOrientationOnSphere(theta, phi),
     [theta, phi]
   )
+
+  const scaledSize = computeFoodRenderRadius(snakeScale, sizeRatio)
+
   useFrame((_, delta) => {
     if (ref.current) {
-      ref.current.rotation.y += delta * 3
+      ref.current.rotation.y += delta * 2.4
       const normal = baseOrient.position.clone().normalize()
-      const bob = Math.sin(Date.now() * 0.004) * 0.5
+      const bob = Math.sin(Date.now() * 0.0037 + phi * 3.2) * (0.22 + scaledSize * 0.08)
       ref.current.position.copy(
-        baseOrient.position.clone().add(normal.multiplyScalar(bob + 1.2))
+        baseOrient.position.clone().add(normal.multiplyScalar(0.26 + scaledSize * 0.95 + bob))
       )
     }
   })
+
   return (
     <mesh ref={ref} position={baseOrient.position} quaternion={baseOrient.quaternion}>
-      <octahedronGeometry args={[1.0, 0]} />
+      <octahedronGeometry args={[scaledSize, lowSpec ? 0 : 1]} />
       <meshStandardMaterial
-        color="#ADFF00" emissive="#ADFF00" emissiveIntensity={3}
+        color={color}
+        emissive={color}
+        emissiveIntensity={2.6}
         transparent opacity={0.9}
       />
     </mesh>
@@ -503,12 +836,12 @@ function createTextTexture(text) {
 /* ── Main Game Scene ── */
 export default function GameScene({ lowSpec = false }) {
   const {
-    autopilot, colliding, collidingBlock, gameRunning,
-    score, food, segmentCount,
-    incrementScore, setAutopilot, recordInput,
-    checkIdleResume, setFood, addSegments,
+    autopilot, colliding, collidingBlock,
+    foods, segmentCount, snakeScale,
+    recordInput,
+    checkIdleResume, setFoods, consumeFood,
     triggerCollision, clearCollision, resetGame,
-    currentSpeed, setCurrentSpeed, vBase, vMax, vMin,
+    setCurrentSpeed, setSpeedProfile, vBase, vMax, vMin,
     activeOverlay, setActiveOverlay,
   } = useGameStore()
 
@@ -516,26 +849,117 @@ export default function GameScene({ lowSpec = false }) {
   const headRef = useRef({ theta: Math.PI / 2, phi: 0 })
   const headingRef = useRef(0)
   const trailRef = useRef([])
+  const segmentsRef = useRef([{ theta: Math.PI / 2, phi: 0, heading: 0 }])
   const segCountRef = useRef(segmentCount)
-  const foodRef = useRef(food)
+  const snakeScaleRef = useRef(snakeScale)
+  const foodsRef = useRef(foods)
   const autopilotRef = useRef(autopilot)
   const collidingRef = useRef(false)
   const collisionTimerRef = useRef(null)
-  const collisionTargetRef = useRef(null)
   const astarPathRef = useRef([])
   const astarRecalcRef = useRef(0)
+  const targetFoodIdRef = useRef(null)
   const flashRef = useRef(false)
   const flashTimerRef = useRef(0)
   const speedRef = useRef(vBase)
-  const zoomRef = useRef(CAM_ELEVATION) // scroll wheel zoom
+  const speedProfileRef = useRef({ vMin, vBase, vMax })
+  const zoomRef = useRef(CAM_ELEVATION)
   const touchSteerRef = useRef(0)
   const touchSteerUntilRef = useRef(0)
+  const foodSpawnClockRef = useRef(0)
+  const targetCooldownsRef = useRef(new Map())
+  const targetTrackRef = useRef({ id: null, lastDistance: Infinity, stuckTime: 0 })
+  const nearbyFoodsRef = useRef(foods)
+  const nearbyFoodsClockRef = useRef(0)
+
+  const seedFoodField = useCallback((headPoint = headRef.current, snakeSegments = segmentsRef.current) => {
+    const maxFoodCount = lowSpec ? MAX_FOOD_COUNT_LOW_SPEC : MAX_FOOD_COUNT
+    const initialCountRaw = lowSpec ? Math.max(4, Math.floor(FOOD_INITIAL_COUNT / 2)) : FOOD_INITIAL_COUNT
+    const initialCount = Math.min(initialCountRaw, maxFoodCount)
+    const nextFoods = []
+    const spawnBody = snakeSegments?.length ? snakeSegments : [headPoint]
+
+    for (let i = 0; i < initialCount; i++) {
+      const item = spawnFood({
+        snakeSegments: spawnBody,
+        foods: nextFoods,
+        extraAvoid: [headPoint],
+        snakeScale: snakeScaleRef.current,
+      })
+      if (item) nextFoods.push(item)
+    }
+
+    foodsRef.current = nextFoods
+    setFoods(nextFoods)
+    return nextFoods
+  }, [lowSpec, setFoods])
+
+  const hardReset = useCallback((respawnFoods = true) => {
+    const baseProfile = computeSnakeSpeedProfile(1)
+    resetGame()
+    headRef.current = { theta: Math.PI / 2, phi: 0 }
+    headingRef.current = 0
+    trailRef.current = []
+    segmentsRef.current = [{ theta: Math.PI / 2, phi: 0, heading: 0 }]
+    segCountRef.current = 3
+    snakeScaleRef.current = 1
+    speedRef.current = baseProfile.vBase
+    speedProfileRef.current = baseProfile
+    setSpeedProfile(baseProfile)
+    setCurrentSpeed(baseProfile.vBase)
+    astarPathRef.current = []
+    astarRecalcRef.current = 0
+    targetFoodIdRef.current = null
+    targetCooldownsRef.current.clear()
+    targetTrackRef.current = { id: null, lastDistance: Infinity, stuckTime: 0 }
+    flashRef.current = false
+    flashTimerRef.current = 0
+    foodSpawnClockRef.current = 0
+    collidingRef.current = false
+    nearbyFoodsRef.current = []
+    nearbyFoodsClockRef.current = 0
+
+    if (respawnFoods) {
+      seedFoodField(headRef.current, segmentsRef.current)
+    } else {
+      foodsRef.current = []
+      setFoods([])
+    }
+  }, [resetGame, seedFoodField, setCurrentSpeed, setFoods, setSpeedProfile])
 
   // Sync refs with store
   useEffect(() => { autopilotRef.current = autopilot }, [autopilot])
   useEffect(() => { segCountRef.current = segmentCount }, [segmentCount])
-  useEffect(() => { foodRef.current = food }, [food])
+  useEffect(() => { snakeScaleRef.current = snakeScale }, [snakeScale])
+  useEffect(() => {
+    foodsRef.current = foods
+    nearbyFoodsRef.current = foods
+    nearbyFoodsClockRef.current = 0
+  }, [foods])
   useEffect(() => { collidingRef.current = colliding }, [colliding])
+
+  useEffect(() => {
+    if (!foods.length) {
+      seedFoodField()
+    }
+  }, [foods.length, seedFoodField])
+
+  useEffect(() => {
+    const maxFoodCount = lowSpec ? MAX_FOOD_COUNT_LOW_SPEC : MAX_FOOD_COUNT
+    if (foods.length > maxFoodCount) {
+      const trimmed = foods.slice(-maxFoodCount)
+      foodsRef.current = trimmed
+      setFoods(trimmed)
+    }
+  }, [foods, lowSpec, setFoods])
+
+  useEffect(() => {
+    return () => {
+      if (collisionTimerRef.current) {
+        clearTimeout(collisionTimerRef.current)
+      }
+    }
+  }, [])
 
   // Scroll wheel zoom
   useEffect(() => {
@@ -636,14 +1060,15 @@ export default function GameScene({ lowSpec = false }) {
   // Render state
   const [renderState, setRenderState] = useState({
     segments: [{ theta: Math.PI / 2, phi: 0, heading: 0 }],
-    food: food,
+    foods: foods.slice(0, lowSpec ? FOOD_WINDOW_SIZE_LOW_SPEC : FOOD_WINDOW_SIZE),
+    snakeScale: snakeScale,
     flash: false,
     collidingBlockLabel: null,
   })
 
   // Keyboard controls - A/D steer, W/S throttle
   const steerRef = useRef(0)
-  const throttleRef = useRef(0) // -1 brake, 0 none, 1 accel
+  const throttleRef = useRef(0)
   const keysDown = useRef(new Set())
 
   useEffect(() => {
@@ -677,7 +1102,6 @@ export default function GameScene({ lowSpec = false }) {
     }
   }, [recordInput])
 
-  // Update steer + throttle from keys
   useEffect(() => {
     const interval = setInterval(() => {
       const left = keysDown.current.has('left')
@@ -696,143 +1120,375 @@ export default function GameScene({ lowSpec = false }) {
   }, [])
 
   const handleNavClick = useCallback((overlayId) => { setActiveOverlay(overlayId) }, [setActiveOverlay])
-
   const { camera } = useThree()
 
   useFrame((_, delta) => {
+    delta = Math.min(delta, MAX_FRAME_DELTA)
     checkIdleResume()
 
     if (collidingRef.current) {
       flashTimerRef.current += delta
       const flashOn = Math.floor(flashTimerRef.current * 16) % 2 === 0
       flashRef.current = flashOn
-      setRenderState(prev => ({ ...prev, flash: flashOn }))
+      setRenderState((prev) => ({
+        ...prev,
+        flash: flashOn,
+        collidingBlockLabel: collidingBlock,
+      }))
       return
     }
 
     const head = headRef.current
     let heading = headingRef.current
 
-    // ── Physics-based speed ──
     let speed = speedRef.current
+    const speedProfile = computeSnakeSpeedProfile(snakeScaleRef.current)
+    const { vMin: dynVMin, vBase: dynVBase, vMax: dynVMax } = speedProfile
+    speed = THREE.MathUtils.clamp(speed, dynVMin, dynVMax)
+
+    const profileRef = speedProfileRef.current
+    if (
+      Math.abs(profileRef.vMin - dynVMin) > 0.001 ||
+      Math.abs(profileRef.vBase - dynVBase) > 0.001 ||
+      Math.abs(profileRef.vMax - dynVMax) > 0.001
+    ) {
+      speedProfileRef.current = speedProfile
+      setSpeedProfile(speedProfile)
+    }
+
     const throttle = throttleRef.current
 
     if (throttle > 0) {
-      // Accelerate: parabolic ease-in toward V_MAX
-      const t = (speed - vBase) / (vMax - vBase) // 0..1 progress
-      const easeFactor = 1 - t * t // faster at start, slower near max
+      const t = THREE.MathUtils.clamp((speed - dynVBase) / Math.max(0.0001, dynVMax - dynVBase), 0, 1)
+      const easeFactor = 1 - t * t
       speed += ACCEL_RATE * easeFactor * delta
-      if (speed > vMax) speed = vMax
+      if (speed > dynVMax) speed = dynVMax
     } else if (throttle < 0) {
-      // Brake: ease toward V_MIN
-      const t = (speed - vMin) / (vBase - vMin) // 1..0 progress
-      const easeFactor = t * t // slower near min
+      const t = THREE.MathUtils.clamp((speed - dynVMin) / Math.max(0.0001, dynVBase - dynVMin), 0, 1)
+      const easeFactor = t * t
       speed -= BRAKE_RATE * easeFactor * delta
-      if (speed < vMin) speed = vMin
+      if (speed < dynVMin) speed = dynVMin
     } else {
-      // No input: friction returns to V_BASE
-      if (speed > vBase) {
+      if (speed > dynVBase) {
         speed -= FRICTION * delta
-        if (speed < vBase) speed = vBase
-      } else if (speed < vBase) {
+        if (speed < dynVBase) speed = dynVBase
+      } else if (speed < dynVBase) {
         speed += FRICTION * delta
-        if (speed > vBase) speed = vBase
+        if (speed > dynVBase) speed = dynVBase
       }
     }
-    speedRef.current = speed
-    setCurrentSpeed(speed)
 
-    // Steering
+    const segmentSpacing = BASE_SEGMENT_SPACING * Math.max(0.2, snakeScaleRef.current)
+    const blockCollisionDist = computeBlockCollisionDistance(snakeScaleRef.current)
+    const cachedSegments = segmentsRef.current
+    const bodyObstacles = sampleBodyObstacles(cachedSegments)
+    const scaleForTurn = Math.max(1, snakeScaleRef.current)
+    const autopilotTurnFactor = THREE.MathUtils.clamp(
+      1 / Math.pow(scaleForTurn, AUTOPILOT_TURN_DAMP_EXP),
+      AUTOPILOT_TURN_DAMP_MIN,
+      1
+    )
+    const autopilotSteerSpeed = STEER_SPEED * autopilotTurnFactor
+    const scaleForFoodSearch = Math.max(1, snakeScaleRef.current)
+    const growthSearchFactor = lowSpec
+      ? 1
+      : Math.min(5, 1 + Math.log2(scaleForFoodSearch) * 0.9)
+    const foodWindowSize = lowSpec
+      ? FOOD_WINDOW_SIZE_LOW_SPEC
+      : Math.min(900, Math.max(FOOD_WINDOW_SIZE, Math.ceil(FOOD_WINDOW_SIZE * growthSearchFactor)))
+    const collisionScanSize = lowSpec
+      ? FOOD_COLLISION_SIZE_LOW_SPEC
+      : Math.min(
+        foodWindowSize,
+        Math.max(FOOD_COLLISION_SIZE, Math.ceil(FOOD_COLLISION_SIZE * growthSearchFactor))
+      )
+    const windowRecalcInterval = lowSpec
+      ? FOOD_WINDOW_RECALC_INTERVAL
+      : THREE.MathUtils.clamp(
+        FOOD_WINDOW_RECALC_INTERVAL / (1 + Math.log2(scaleForFoodSearch) * 0.5),
+        0.05,
+        FOOD_WINDOW_RECALC_INTERVAL
+      )
+    nearbyFoodsClockRef.current -= delta
+    if (
+      nearbyFoodsClockRef.current <= 0 ||
+      nearbyFoodsRef.current.length === 0 ||
+      foodsRef.current.length <= foodWindowSize
+    ) {
+      nearbyFoodsRef.current = selectNearestFoods(foodsRef.current, head, foodWindowSize)
+      nearbyFoodsClockRef.current = windowRecalcInterval
+    }
+    const nearbyFoods = nearbyFoodsRef.current
+    const autopilotFoods = nearbyFoods.slice(0, lowSpec ? FOOD_AUTOPILOT_SIZE_LOW_SPEC : FOOD_AUTOPILOT_SIZE)
+    const collisionFoods = nearbyFoods.slice(0, collisionScanSize)
+
+    let nearestBodyDist = Infinity
+    for (let i = SELF_COLLIDE_SEGMENT_SKIP; i < cachedSegments.length; i++) {
+      const seg = cachedSegments[i]
+      const d = greatCircleDistance(head.theta, head.phi, seg.theta, seg.phi)
+      if (d < nearestBodyDist) nearestBodyDist = d
+    }
+
+    let nearestNavDist = Infinity
+    for (const block of NAV_BLOCKS) {
+      const d = greatCircleDistance(head.theta, head.phi, block.theta, block.phi)
+      if (d < nearestNavDist) nearestNavDist = d
+    }
+
     if (!autopilotRef.current) {
-      // Negate steer so A=left, D=right matches visual direction
       const now = performance.now()
       const touchSteer = now < touchSteerUntilRef.current ? touchSteerRef.current : 0
       if (!touchSteer) touchSteerRef.current = 0
       const steerInput = touchSteer || steerRef.current
       heading -= steerInput * STEER_SPEED * delta
     } else {
-      // A* autopilot
+      const now = performance.now()
+      const cooldowns = targetCooldownsRef.current
+      for (const [id, expiresAt] of cooldowns) {
+        if (expiresAt <= now) cooldowns.delete(id)
+      }
+
+      const targetFood = chooseFoodTarget(autopilotFoods, head, bodyObstacles, {
+        cooldowns,
+        now,
+        bodyUnsafeDist: Math.min(14, Math.max(1.4, segmentSpacing * 6.4)),
+        heading,
+        snakeScale: snakeScaleRef.current,
+      })
+      const targetFoodId = targetFood ? targetFood.id : null
+
+      if (targetFoodIdRef.current !== targetFoodId) {
+        targetFoodIdRef.current = targetFoodId
+        astarPathRef.current = []
+        astarRecalcRef.current = 0
+        targetTrackRef.current = { id: targetFoodId, lastDistance: Infinity, stuckTime: 0 }
+      }
+
       astarRecalcRef.current -= delta
-      if (astarRecalcRef.current <= 0 || astarPathRef.current.length === 0) {
+      if (targetFood && (astarRecalcRef.current <= 0 || astarPathRef.current.length === 0)) {
         try {
-          const obstacles = NAV_BLOCKS.map(b => ({ theta: b.theta, phi: b.phi }))
+          const navClearanceCells = snakeScaleRef.current <= 6 ? 7 : 6
+          const bodyClearanceCells = snakeScaleRef.current <= 6
+            ? 2
+            : snakeScaleRef.current <= 36
+              ? 3
+              : 4
+          const obstacles = [
+            ...NAV_BLOCKS.map((b) => ({ theta: b.theta, phi: b.phi, clearanceCells: navClearanceCells })),
+            ...bodyObstacles.map((pt) => ({ ...pt, clearanceCells: bodyClearanceCells })),
+          ]
           const path = findPathAStar(
-            head.theta, head.phi,
-            foodRef.current.theta, foodRef.current.phi,
+            head.theta,
+            head.phi,
+            targetFood.theta,
+            targetFood.phi,
             obstacles
           )
           astarPathRef.current = path && path.length > 0 ? path : []
         } catch (e) {
-          astarPathRef.current = [{ theta: foodRef.current.theta, phi: foodRef.current.phi }]
+          astarPathRef.current = [{ theta: targetFood.theta, phi: targetFood.phi }]
         }
-        astarRecalcRef.current = 0.3
+        astarRecalcRef.current = AUTOPILOT_RECALC_INTERVAL
       }
 
-      // Emergency block avoidance — reactive steering away from nearby blocks
-      const EMERGENCY_DIST = 12.0 // distance threshold to trigger emergency steer
-      let emergencySteer = 0
-      for (const block of NAV_BLOCKS) {
-        const blockDist = greatCircleDistance(head.theta, head.phi, block.theta, block.phi)
-        if (blockDist < EMERGENCY_DIST) {
-          // Heading toward block
-          const toBlock = headingToward(head.theta, head.phi, block.theta, block.phi)
-          let angleDiff = toBlock - heading
-          while (angleDiff > Math.PI) angleDiff -= Math.PI * 2
-          while (angleDiff < -Math.PI) angleDiff += Math.PI * 2
-          // Only react if we're generally heading toward the block (within ±90°)
-          if (Math.abs(angleDiff) < Math.PI / 2) {
-            // Steer away — stronger when closer
-            const urgency = 1 - (blockDist / EMERGENCY_DIST)
-            const steerDir = angleDiff > 0 ? -1 : 1 // steer opposite to block
-            emergencySteer += steerDir * urgency * STEER_SPEED * delta * 6.0
+      if (astarPathRef.current.length > 0) {
+        const waypointSafetyDist = blockCollisionDist * NAV_WAYPOINT_SAFE_MULT
+        while (astarPathRef.current.length > 0) {
+          const waypoint = astarPathRef.current[0]
+          const waypointUnsafe = NAV_BLOCKS.some((block) => (
+            greatCircleDistance(waypoint.theta, waypoint.phi, block.theta, block.phi) < waypointSafetyDist
+          ))
+          if (!waypointUnsafe) break
+          astarPathRef.current.shift()
+        }
+
+        const target = astarPathRef.current[0]
+        if (target) {
+          const dist = greatCircleDistance(head.theta, head.phi, target.theta, target.phi)
+          if (dist < segmentSpacing * 2.8) {
+            astarPathRef.current.shift()
+          }
+
+          if (astarPathRef.current.length > 0) {
+            const wp = astarPathRef.current[0]
+            const desiredHeading = headingToward(head.theta, head.phi, wp.theta, wp.phi)
+            const diff = normalizeAngleDiff(desiredHeading - heading)
+            if (Math.abs(diff) > AUTOPILOT_HARD_UTURN_ANGLE && snakeScaleRef.current > 6) {
+              if (targetFood) cooldowns.set(targetFood.id, now + TARGET_COOLDOWN_MS)
+              targetFoodIdRef.current = null
+              astarPathRef.current = []
+              astarRecalcRef.current = 0
+            } else {
+              const steerAmount = Math.sign(diff) * Math.min(Math.abs(diff), autopilotSteerSpeed * delta * 2.2)
+              heading += steerAmount
+            }
           }
         }
       }
 
-      if (Math.abs(emergencySteer) > 0.001) {
-        // Emergency steer overrides A* path following
-        heading += emergencySteer
-        // Force A* recalc next frame to find new route
-        astarRecalcRef.current = 0
-      } else if (astarPathRef.current.length > 0) {
-        const target = astarPathRef.current[0]
-        const dist = greatCircleDistance(head.theta, head.phi, target.theta, target.phi)
-        if (dist < 4.0) astarPathRef.current.shift()
-
-        if (astarPathRef.current.length > 0) {
-          const wp = astarPathRef.current[0]
-          const desiredHeading = headingToward(head.theta, head.phi, wp.theta, wp.phi)
-          let diff = desiredHeading - heading
-          while (diff > Math.PI) diff -= Math.PI * 2
-          while (diff < -Math.PI) diff += Math.PI * 2
-          const steerAmount = Math.sign(diff) * Math.min(Math.abs(diff), STEER_SPEED * delta * 3.0)
-          heading += steerAmount
+      if (targetFood) {
+        const targetDist = greatCircleDistance(head.theta, head.phi, targetFood.theta, targetFood.phi)
+        const collectDist = computeFoodCollisionDistance(snakeScaleRef.current, targetFood.sizeRatio)
+        const tracker = targetTrackRef.current
+        if (tracker.id !== targetFood.id) {
+          targetTrackRef.current = { id: targetFood.id, lastDistance: targetDist, stuckTime: 0 }
+        } else if (targetDist > collectDist * 1.3) {
+          const progress = tracker.lastDistance - targetDist
+          if (progress < Math.max(STUCK_PROGRESS_EPS, segmentSpacing * 0.08)) {
+            tracker.stuckTime += delta
+          } else {
+            tracker.stuckTime = Math.max(0, tracker.stuckTime - delta * 0.7)
+          }
+          tracker.lastDistance = targetDist
+          if (tracker.stuckTime >= STUCK_TIMEOUT) {
+            cooldowns.set(targetFood.id, now + TARGET_COOLDOWN_MS)
+            targetFoodIdRef.current = null
+            astarPathRef.current = []
+            astarRecalcRef.current = 0
+            targetTrackRef.current = { id: null, lastDistance: Infinity, stuckTime: 0 }
+          }
         }
+      }
+
+      const autopilotCruiseFloor = dynVBase
+      const autopilotEmergencyFloor = Math.max(dynVMin, dynVBase * 0.86)
+      let emergencySteer = 0
+      const navEmergencyDist = Math.max(
+        blockCollisionDist * 2.9,
+        speed * NAV_EMERGENCY_SPEED_FACTOR + NAV_EMERGENCY_MIN_EXTRA
+      )
+      const bodyEmergencyDist = Math.min(20, Math.max(3.2, segmentSpacing * 7))
+
+      for (const block of NAV_BLOCKS) {
+        const dangerDist = greatCircleDistance(head.theta, head.phi, block.theta, block.phi)
+        if (dangerDist >= navEmergencyDist) continue
+
+        const toward = headingToward(head.theta, head.phi, block.theta, block.phi)
+        const diff = normalizeAngleDiff(toward - heading)
+        if (Math.abs(diff) > Math.PI * 0.9) continue
+
+        const urgency = 1 - dangerDist / navEmergencyDist
+        emergencySteer += (diff > 0 ? -1 : 1) * urgency * autopilotSteerSpeed * delta * 5.4
+      }
+
+      for (const bodyPoint of bodyObstacles) {
+        const dangerDist = greatCircleDistance(head.theta, head.phi, bodyPoint.theta, bodyPoint.phi)
+        if (dangerDist >= bodyEmergencyDist) continue
+
+        const toward = headingToward(head.theta, head.phi, bodyPoint.theta, bodyPoint.phi)
+        const diff = normalizeAngleDiff(toward - heading)
+        if (Math.abs(diff) > Math.PI * 0.84) continue
+
+        const urgency = 1 - dangerDist / bodyEmergencyDist
+        emergencySteer += (diff > 0 ? -1 : 1) * urgency * autopilotSteerSpeed * delta * 3.0
+      }
+
+      if (Math.abs(emergencySteer) > 0.0001) {
+        heading += emergencySteer
+        speed = Math.max(autopilotEmergencyFloor, speed - BRAKE_RATE * delta * 0.9)
+        astarRecalcRef.current = 0
+      }
+
+      const lookaheadArc = Math.max(
+        blockCollisionDist * 2.5,
+        speed * NAV_LOOKAHEAD_SECONDS
+      )
+      let imminentRisk = false
+      let avoidanceSteerScore = 0
+
+      for (const ratio of NAV_LOOKAHEAD_SAMPLES) {
+        const probe = moveOnSphere(head.theta, head.phi, heading, lookaheadArc * ratio)
+
+        for (const block of NAV_BLOCKS) {
+          const d = greatCircleDistance(probe.theta, probe.phi, block.theta, block.phi)
+          const safetyDist = blockCollisionDist * (1.12 + (1 - ratio) * 0.16)
+          if (d < safetyDist) {
+            imminentRisk = true
+            const toward = headingToward(probe.theta, probe.phi, block.theta, block.phi)
+            const diff = normalizeAngleDiff(toward - heading)
+            const urgency = 1 - d / Math.max(0.0001, safetyDist)
+            avoidanceSteerScore += (diff > 0 ? -1 : 1) * urgency * 1.55
+          }
+        }
+
+        for (let i = SELF_COLLIDE_SEGMENT_SKIP; i < cachedSegments.length; i++) {
+          const seg = cachedSegments[i]
+          const collisionDist = computeSelfCollisionDistance(0, i, snakeScaleRef.current) * 1.05
+          const d = greatCircleDistance(probe.theta, probe.phi, seg.theta, seg.phi)
+          if (d < collisionDist) {
+            imminentRisk = true
+            const toward = headingToward(probe.theta, probe.phi, seg.theta, seg.phi)
+            const diff = normalizeAngleDiff(toward - heading)
+            const urgency = 1 - d / Math.max(0.0001, collisionDist)
+            avoidanceSteerScore += (diff > 0 ? -1 : 1) * urgency * 0.95
+            break
+          }
+        }
+      }
+
+      if (imminentRisk) {
+        const steerDir = Math.sign(avoidanceSteerScore || emergencySteer || 1)
+        heading += steerDir * autopilotSteerSpeed * delta * 4.0
+        speed = Math.max(autopilotEmergencyFloor, speed - BRAKE_RATE * delta * 2.8)
+        astarPathRef.current = []
+        astarRecalcRef.current = 0
+      }
+
+      const bodySlowdownThreshold = Math.min(18, segmentSpacing * 7.5)
+      const navSlowdownThreshold = blockCollisionDist * 2.5
+      if (nearestBodyDist < bodySlowdownThreshold || nearestNavDist < navSlowdownThreshold) {
+        speed = Math.max(autopilotCruiseFloor, speed - BRAKE_RATE * delta * 1.25)
       }
     }
 
-    // Move forward with current speed
-    const arcDist = speed * delta
-    const result = moveOnSphere(head.theta, head.phi, heading, arcDist)
+    speed = THREE.MathUtils.clamp(speed, dynVMin, dynVMax)
+    speedRef.current = speed
+    setCurrentSpeed(speed)
+
+    const totalArcDist = speed * delta
+    const maxSubstepArc = Math.max(0.15, segmentSpacing * 0.65)
+    const substeps = Math.max(1, Math.ceil(totalArcDist / maxSubstepArc))
+    const stepArc = totalArcDist / substeps
+    let result = { theta: head.theta, phi: head.phi, heading }
+
+    for (let i = 0; i < substeps; i++) {
+      result = moveOnSphere(result.theta, result.phi, result.heading, stepArc)
+      trailRef.current.unshift({ theta: result.theta, phi: result.phi, heading: result.heading })
+    }
 
     headRef.current = { theta: result.theta, phi: result.phi }
     headingRef.current = result.heading
 
-    // Trail
-    trailRef.current.unshift({ theta: result.theta, phi: result.phi, heading: result.heading })
-    if (trailRef.current.length > TRAIL_LENGTH) trailRef.current.length = TRAIL_LENGTH
+    const requiredTrailDist = segmentSpacing * Math.max(segCountRef.current + 2, 8)
+    const roughSamplesPerUnit = 5.5
+    const requiredByDensity = Math.ceil(requiredTrailDist * roughSamplesPerUnit)
+    const sampleArcEstimate = Math.max(0.05, stepArc)
+    const requiredByDistance = Math.ceil((requiredTrailDist / sampleArcEstimate) * 1.35)
+    const dynamicTrailTarget = Math.max(requiredByDensity, requiredByDistance)
+    const maxTrailLength = lowSpec
+      ? Math.max(280, Math.min(3600, dynamicTrailTarget))
+      : Math.max(TRAIL_LENGTH, Math.min(60000, dynamicTrailTarget))
 
-    // Build segments from trail
+    if (trailRef.current.length > maxTrailLength) {
+      trailRef.current.length = maxTrailLength
+    }
+
     const segments = [{ theta: result.theta, phi: result.phi, heading: result.heading }]
     let trailIdx = 0
     let accumDist = 0
 
     for (let i = 1; i < segCountRef.current && trailIdx < trailRef.current.length - 1; i++) {
-      const targetDist = i * SEGMENT_SPACING
+      const targetDist = i * segmentSpacing
       while (trailIdx < trailRef.current.length - 1 && accumDist < targetDist) {
         const a = trailRef.current[trailIdx]
         const b = trailRef.current[trailIdx + 1]
         const d = greatCircleDistance(a.theta, a.phi, b.theta, b.phi)
+
+        if (d <= 0.00001) {
+          trailIdx++
+          continue
+        }
+
         if (accumDist + d >= targetDist) {
           const t = (targetDist - accumDist) / d
           const theta = a.theta + (b.theta - a.theta) * t
@@ -840,62 +1496,100 @@ export default function GameScene({ lowSpec = false }) {
           segments.push({ theta, phi, heading: b.heading })
           break
         }
+
         accumDist += d
         trailIdx++
       }
     }
 
-    // Self-collision check (head vs body segments, skip first few)
-    const SELF_COLLIDE_DIST = 0.75
-    if (segments.length > 6) {
-      for (let si = 6; si < segments.length; si++) {
+    segmentsRef.current = segments
+
+    const skipCount = Math.max(SELF_COLLIDE_SEGMENT_SKIP, Math.ceil(3 + Math.pow(snakeScaleRef.current, 0.18)))
+    if (segments.length > skipCount + 1) {
+      for (let si = skipCount; si < segments.length; si++) {
         const seg = segments[si]
         const d = greatCircleDistance(result.theta, result.phi, seg.theta, seg.phi)
-        if (d < SELF_COLLIDE_DIST) {
-          // Reset score and length
-          resetGame()
-          segCountRef.current = 3
-          trailRef.current = []
-          headRef.current = { theta: Math.PI / 2, phi: 0 }
-          headingRef.current = 0
-          speedRef.current = vBase
-          astarPathRef.current = []
-          break
+        if (d < computeSelfCollisionDistance(0, si, snakeScaleRef.current)) {
+          hardReset(true)
+          setRenderState({
+            segments: [{ theta: Math.PI / 2, phi: 0, heading: 0 }],
+            foods: nearbyFoods,
+            snakeScale: snakeScaleRef.current,
+            flash: false,
+            collidingBlockLabel: null,
+          })
+          return
         }
       }
     }
 
-    // Food collision
-    const fd = foodRef.current
-    if (greatCircleDistance(result.theta, result.phi, fd.theta, fd.phi) < FOOD_COLLECT_DIST) {
-      incrementScore()
-      addSegments(1)
-      const avoidPts = [
-        ...NAV_BLOCKS.map(b => ({ theta: b.theta, phi: b.phi })),
-        { theta: result.theta, phi: result.phi },
-      ]
-      const newFood = randomSpherePoint(avoidPts, 8.0)
-      foodRef.current = newFood
-      setFood(newFood)
+    for (const item of collisionFoods) {
+      const foodDist = greatCircleDistance(result.theta, result.phi, item.theta, item.phi)
+      const tunnelPadding = Math.min(segmentSpacing * 0.95, speed * delta * 0.7)
+      const collectDist = computeFoodCollisionDistance(snakeScaleRef.current, item.sizeRatio) + tunnelPadding
+      if (foodDist > collectDist) continue
+
+      const outcome = consumeFood(item.id, item.basePoints)
+      const nextState = useGameStore.getState()
+      foodsRef.current = nextState.foods
+      segCountRef.current = nextState.segmentCount
+      snakeScaleRef.current = nextState.snakeScale
       astarPathRef.current = []
+      astarRecalcRef.current = 0
+      targetFoodIdRef.current = null
+      targetTrackRef.current = { id: null, lastDistance: Infinity, stuckTime: 0 }
+      nearbyFoodsClockRef.current = 0
+
+      if (outcome.evolved) {
+        // Keep most of the current trail so evolution compaction does not
+        // collapse the body too aggressively across later evolutions.
+        const keepTrail = Math.max(64, Math.floor(trailRef.current.length * (2 / 3)))
+        trailRef.current = trailRef.current.slice(0, keepTrail)
+      }
+
+      break
     }
 
-    // Nav block collision — reset score/length, then navigate
+    const spawnInterval = lowSpec ? FOOD_SPAWN_INTERVAL * 1.8 : FOOD_SPAWN_INTERVAL
+    const maxFoodCount = lowSpec ? MAX_FOOD_COUNT_LOW_SPEC : MAX_FOOD_COUNT
+    const spawnBudget = lowSpec ? MAX_FOOD_SPAWNS_PER_FRAME_LOW_SPEC : MAX_FOOD_SPAWNS_PER_FRAME
+    foodSpawnClockRef.current += delta
+    if (foodsRef.current.length >= maxFoodCount) {
+      foodSpawnClockRef.current = Math.min(foodSpawnClockRef.current, spawnInterval)
+    }
+    let spawnedThisFrame = 0
+    while (
+      foodSpawnClockRef.current >= spawnInterval &&
+      foodsRef.current.length < maxFoodCount &&
+      spawnedThisFrame < spawnBudget
+    ) {
+      foodSpawnClockRef.current -= spawnInterval
+      const newFood = spawnFood({
+        snakeSegments: segments,
+        foods: foodsRef.current,
+        extraAvoid: [{ theta: result.theta, phi: result.phi }],
+        snakeScale: snakeScaleRef.current,
+      })
+      if (newFood) {
+        const nextFoods = [...foodsRef.current, newFood]
+        foodsRef.current = nextFoods
+        setFoods(nextFoods)
+        spawnedThisFrame += 1
+      }
+    }
+    if (spawnedThisFrame >= spawnBudget) {
+      foodSpawnClockRef.current = Math.min(foodSpawnClockRef.current, spawnInterval * 2.5)
+    }
+
     for (const block of NAV_BLOCKS) {
       const dist = greatCircleDistance(result.theta, result.phi, block.theta, block.phi)
-      if (dist < BLOCK_COLLECT_DIST) {
+      if (dist < blockCollisionDist) {
         collidingRef.current = true
-        collisionTargetRef.current = block.overlay
         flashTimerRef.current = 0
         triggerCollision(block.label)
-        setTimeout(() => {
-          resetGame()
-          segCountRef.current = 3
-          trailRef.current = []
-          headRef.current = { theta: Math.PI / 2, phi: 0 }
-          headingRef.current = 0
-          speedRef.current = vBase
-          astarPathRef.current = []
+        if (collisionTimerRef.current) clearTimeout(collisionTimerRef.current)
+        collisionTimerRef.current = setTimeout(() => {
+          hardReset(true)
           clearCollision()
           collidingRef.current = false
           setActiveOverlay(block.overlay)
@@ -904,7 +1598,6 @@ export default function GameScene({ lowSpec = false }) {
       }
     }
 
-    // Camera follow — zoom out when overlay is active, otherwise use scroll-wheel zoom
     const headPos = sphericalToCartesian(result.theta, result.phi)
     const normal = headPos.clone().normalize()
     const targetZoom = activeOverlay ? OVERLAY_ZOOM : (lowSpec ? CAM_ELEVATION : zoomRef.current)
@@ -914,13 +1607,20 @@ export default function GameScene({ lowSpec = false }) {
 
     setRenderState({
       segments,
-      food: foodRef.current,
+      foods: nearbyFoods,
+      snakeScale: snakeScaleRef.current,
       flash: false,
-      collidingBlockLabel: null,
+      collidingBlockLabel: collidingBlock,
     })
   })
 
-  const { segments, flash, collidingBlockLabel } = renderState
+  const {
+    segments,
+    foods: renderFoods,
+    snakeScale: renderSnakeScale,
+    flash,
+    collidingBlockLabel,
+  } = renderState
 
   return (
     <>
@@ -933,21 +1633,39 @@ export default function GameScene({ lowSpec = false }) {
       <pointLight position={[50, 30, 50]} intensity={0.5} color="#ADFF00" distance={100} />
       <pointLight position={[0, -60, 0]} intensity={0.3} color="#00F0FF" distance={100} />
 
-      <Globe />
+      {lowSpec ? <GlobeLow /> : <GlobeFull />}
 
       {segments.map((seg, i) => (
         <SnakeSegment
-          key={i} theta={seg.theta} phi={seg.phi} heading={seg.heading}
-          index={i} isHead={i === 0} flash={flash}
+          key={i}
+          theta={seg.theta}
+          phi={seg.phi}
+          heading={seg.heading}
+          index={i}
+          isHead={i === 0}
+          flash={flash}
+          snakeScale={renderSnakeScale}
+          lowSpec={lowSpec}
         />
       ))}
 
-      <FoodItem theta={renderState.food.theta} phi={renderState.food.phi} />
+      {renderFoods.map((item) => (
+        <FoodItem
+          key={item.id}
+          food={item}
+          snakeScale={renderSnakeScale}
+          lowSpec={lowSpec}
+        />
+      ))}
 
       {NAV_BLOCKS.map((block) => (
         <NavBlock
-          key={block.label} label={block.label} path={block.overlay}
-          theta={block.theta} phi={block.phi} color={block.color}
+          key={block.label}
+          label={block.label}
+          path={block.overlay}
+          theta={block.theta}
+          phi={block.phi}
+          color={block.color}
           onClick={handleNavClick}
           flash={flash && collidingBlockLabel === block.label}
         />

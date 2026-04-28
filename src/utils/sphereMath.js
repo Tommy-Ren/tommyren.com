@@ -170,10 +170,15 @@ export function findPathAStar(startTheta, startPhi, goalTheta, goalPhi, obstacle
   const obstacleSet = new Set()
   for (const obs of obstacles) {
     const g = coordToGrid(obs.theta, obs.phi)
-    // Block a wider area around each obstacle to prevent snake suicide
-    // At GRID_RES=48, each cell ≈ 2.6 arc-units, so ±5 cells ≈ 13 units clearance
-    for (let dr = -5; dr <= 5; dr++) {
-      for (let dc = -5; dc <= 5; dc++) {
+    // Allow per-obstacle clearance so autopilot can avoid both large nav blocks
+    // and tighter moving body obstacles without over-blocking the whole map.
+    const clearance = THREE.MathUtils.clamp(
+      Math.round(obs.clearanceCells ?? 5),
+      1,
+      8
+    )
+    for (let dr = -clearance; dr <= clearance; dr++) {
+      for (let dc = -clearance; dc <= clearance; dc++) {
         const nr = g.row + dr
         const nc = ((g.col + dc) % GRID_RES + GRID_RES) % GRID_RES
         if (nr >= 0 && nr < GRID_RES) {

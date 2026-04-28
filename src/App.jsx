@@ -5,6 +5,7 @@ import HomePage from './pages/HomePage'
 import LoadingScreen from './components/LoadingScreen'
 import earthTextureUrl from './assets/planets/earth.jpg'
 import earthNightTextureUrl from './assets/planets/earth_night.jpg'
+import earthLowTextureUrl from './assets/planets/low/earth_low.jpg'
 import saturnTextureUrl from './assets/planets/saturn.jpg'
 import jupiterTextureUrl from './assets/planets/jupiter.jpg'
 import ceresTextureUrl from './assets/planets/ceres.jpg'
@@ -34,8 +35,7 @@ const FULL_TEXTURES = [
 ]
 
 const LOW_SPEC_TEXTURES = [
-  earthTextureUrl,
-  earthNightTextureUrl,
+  earthLowTextureUrl,
 ]
 
 export default function App() {

@@ -5,10 +5,28 @@ const GRID_DIVISIONS = 40
 const IDLE_TIMEOUT = 3000
 const COLLISION_DURATION = 500
 
-// Speed constants — V_BASE is 25% of V_MAX
-const V_BASE = 6.75  // default cruising speed (arc-distance/s)
-const V_MAX = 27.0   // top speed when accelerating (3x base)
-const V_MIN = 3.0    // minimum crawl speed when braking
+// Speed constants — tuned slower for smoother control
+const V_BASE = 5.0625 // default cruising speed (3/4 of previous)
+const V_MAX = 20.25   // top speed when accelerating
+const V_MIN = 2.25    // minimum crawl speed when braking
+const INITIAL_SEGMENT_COUNT = 3
+const SEGMENTS_TO_GROWTH = 15
+const COMPACT_SEGMENT_COUNT = 3
+const SCORE_PER_SEGMENT = 10
+const SEGMENT_COST_GROWTH_FACTOR = 5
+const FIRST_EVOLUTION_SCALE = 6
+const EVOLUTION_SCALE_RATIO = 10 / 3
+
+function computeSnakeScaleAfterEvolution(currentScale, nextLevel) {
+  if (nextLevel <= 0) return 1
+  if (nextLevel === 1) return FIRST_EVOLUTION_SCALE
+  return currentScale * EVOLUTION_SCALE_RATIO
+}
+
+function computeFoodScoreMultiplier(level) {
+  if (level <= 0) return 1
+  return level * 3
+}
 
 const useGameStore = create((set, get) => ({
   // Core game state
@@ -26,7 +44,12 @@ const useGameStore = create((set, get) => ({
   snakeHead: { theta: Math.PI / 2, phi: 0 },
   snakeHeading: 0,
   snakeSegments: [],
-  segmentCount: 3,
+  segmentCount: INITIAL_SEGMENT_COUNT,
+  snakeScale: 1,
+  evolutionLevel: 0,
+  scoreMultiplier: 1,
+  lengthProgress: 0,
+  segmentScoreCost: SCORE_PER_SEGMENT,
 
   // Speed state
   currentSpeed: V_BASE,
@@ -35,7 +58,7 @@ const useGameStore = create((set, get) => ({
   vMin: V_MIN,
 
   // Food
-  food: { theta: Math.PI / 3, phi: Math.PI / 4 },
+  foods: [],
 
   // Autopilot / idle tracking
   lastInputTime: 0,
@@ -48,8 +71,6 @@ const useGameStore = create((set, get) => ({
   collisionDuration: COLLISION_DURATION,
 
   // Actions
-  incrementScore: () => set((s) => ({ score: s.score + 10 })),
-
   setAutopilot: (val) => set({ autopilot: val }),
 
   recordInput: () => set({ lastInputTime: Date.now(), autopilot: false }),
@@ -67,8 +88,87 @@ const useGameStore = create((set, get) => ({
   addSegments: (count) => set((s) => ({ segmentCount: s.segmentCount + count })),
 
   setCurrentSpeed: (speed) => set({ currentSpeed: speed }),
+  setSpeedProfile: ({ vMin, vBase, vMax }) => set({
+    vMin,
+    vBase,
+    vMax,
+  }),
 
-  setFood: (food) => set({ food }),
+  setFoods: (foods) => set({ foods }),
+  addFood: (food) => set((s) => ({ foods: [...s.foods, food] })),
+
+  consumeFood: (foodId, basePoints) => {
+    const rewardBase = Math.max(1, Number(basePoints) || 1)
+    const outcome = {
+      scoreDelta: 0,
+      evolved: false,
+      evolutionCount: 0,
+      lengthGains: 0,
+      currentScale: get().snakeScale,
+      currentSegmentCount: get().segmentCount,
+    }
+
+    set((s) => {
+      const foodExists = s.foods.some((item) => item.id === foodId)
+      if (!foodExists) return s
+
+      const foodMultiplier = computeFoodScoreMultiplier(s.evolutionLevel)
+      const scoreDelta = rewardBase * foodMultiplier
+      let score = s.score + scoreDelta
+      let lengthProgress = s.lengthProgress + scoreDelta
+      let segmentCount = s.segmentCount
+      let evolutionLevel = s.evolutionLevel
+      let snakeScale = s.snakeScale
+      let scoreMultiplier = foodMultiplier
+      let segmentScoreCost = s.segmentScoreCost
+
+      outcome.scoreDelta = scoreDelta
+
+      let guard = 0
+      while (guard < 200) {
+        guard += 1
+        let progressed = false
+
+        while (lengthProgress >= segmentScoreCost) {
+          lengthProgress -= segmentScoreCost
+          segmentCount += 1
+          outcome.lengthGains += 1
+          progressed = true
+        }
+
+        if (segmentCount >= SEGMENTS_TO_GROWTH) {
+          evolutionLevel += 1
+          snakeScale = computeSnakeScaleAfterEvolution(snakeScale, evolutionLevel)
+          scoreMultiplier = computeFoodScoreMultiplier(evolutionLevel)
+          segmentCount = COMPACT_SEGMENT_COUNT
+          segmentScoreCost *= SEGMENT_COST_GROWTH_FACTOR
+          outcome.evolved = true
+          outcome.evolutionCount += 1
+          progressed = true
+        }
+
+        if (!progressed) break
+      }
+
+      outcome.currentScale = snakeScale
+      outcome.currentSegmentCount = segmentCount
+
+      return {
+        ...s,
+        foods: s.foods.filter((item) => item.id !== foodId),
+        score,
+        lengthProgress,
+        segmentCount,
+        snakeScale,
+        evolutionLevel,
+        scoreMultiplier,
+        segmentScoreCost,
+      }
+    })
+
+    return outcome
+  },
+
   setAStarPath: (path) => set({ aStarPath: path }),
 
   triggerCollision: (block) => set({
@@ -92,9 +192,14 @@ const useGameStore = create((set, get) => ({
     snakeHead: { theta: Math.PI / 2, phi: 0 },
     snakeHeading: 0,
     snakeSegments: [],
-    segmentCount: 3,
+    segmentCount: INITIAL_SEGMENT_COUNT,
+    snakeScale: 1,
+    evolutionLevel: 0,
+    scoreMultiplier: 1,
+    lengthProgress: 0,
+    segmentScoreCost: SCORE_PER_SEGMENT,
     currentSpeed: V_BASE,
-    food: { theta: Math.PI / 3, phi: Math.PI / 4 },
+    foods: [],
     lastInputTime: 0,
     aStarPath: [],
   }),
