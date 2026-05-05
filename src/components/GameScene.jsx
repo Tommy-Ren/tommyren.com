@@ -68,6 +68,35 @@ const FOOD_COLLISION_SIZE = 72
 const FOOD_COLLISION_SIZE_LOW_SPEC = 24
 const MAX_FOOD_SPAWNS_PER_FRAME = 2
 const MAX_FOOD_SPAWNS_PER_FRAME_LOW_SPEC = 1
+const SPACE_UNLOCK_EVOLUTION_LEVEL = 3
+const SURFACE_MODE = 'surface'
+const SPACE_MODE = 'space'
+const SPACE_LAUNCH_ALTITUDE = 8
+const SPACE_FOOD_SPAWN_INTERVAL = 1.3
+const SPACE_FOOD_INITIAL_COUNT = 10
+const SPACE_MAX_FOOD_COUNT = 120
+const SPACE_MAX_FOOD_COUNT_LOW_SPEC = 42
+const SPACE_FOOD_MIN_DIST = 90
+const SPACE_FOOD_MAX_DIST = 520
+const SPACE_FOOD_PLANET_SAFE_MARGIN = 8
+const SPACE_FOOD_PLAYER_SAFE_MARGIN = 5
+const SPACE_FOOD_FOOD_SAFE_MARGIN = 4
+const SPACE_FOOD_SIZE_BIAS = 1.05
+const SPACE_TURN_SPEED = 6.0
+const SPACE_CAMERA_FOLLOW = 50
+const SPACE_CAMERA_LOOKAHEAD = 18
+const SPACE_CAMERA_HEIGHT = 22
+const SPACE_CAMERA_LOOKUP = 4
+const SPACE_ZOOM_MIN = 24
+const SPACE_ZOOM_MAX = 260
+const SPACE_ZOOM_DEFAULT = 56
+const SPACE_CAMERA_SMOOTH = 2.8
+const SPACE_CONTROL_SMOOTH = 4.0
+const SPACE_PLANET_DIST_MIN = 170
+const SPACE_PLANET_DIST_MAX = 500
+const SPACE_PLANET_GAP = 12
+const SPACE_PLANET_RADIUS_MIN = 15
+const SPACE_PLANET_RADIUS_MAX = 56
 
 // Physics speed constants
 const V_BASE = 5.0625
@@ -91,6 +120,12 @@ const FOOD_VARIANTS = [
   { kind: 'small', weight: 0.56, basePoints: 1, sizeRatio: 0.58, color: '#44d8ff' },
   { kind: 'medium', weight: 0.29, basePoints: 5, sizeRatio: 1.0, color: '#a7ff3f' },
   { kind: 'large', weight: 0.15, basePoints: 10, sizeRatio: 1.52, color: '#ff8e3b' },
+]
+
+const SPACE_FOOD_VARIANTS = [
+  { kind: 'small-space', weight: 0.54, basePoints: 1, sizeRatio: 0.95, color: '#7de6ff' },
+  { kind: 'medium-space', weight: 0.31, basePoints: 5, sizeRatio: 1.08, color: '#b8ff63' },
+  { kind: 'large-space', weight: 0.15, basePoints: 10, sizeRatio: 1.18, color: '#ffc06b' },
 ]
 
 const NAV_BLOCKS = [
@@ -134,14 +169,14 @@ function normalizeAngleDiff(angle) {
   return next
 }
 
-function pickFoodVariant() {
+function pickFoodVariant(variants = FOOD_VARIANTS) {
   const roll = Math.random()
   let cursor = 0
-  for (const variant of FOOD_VARIANTS) {
+  for (const variant of variants) {
     cursor += variant.weight
     if (roll <= cursor) return variant
   }
-  return FOOD_VARIANTS[FOOD_VARIANTS.length - 1]
+  return variants[variants.length - 1]
 }
 
 function createFoodId() {
@@ -156,7 +191,7 @@ function spawnFood({ snakeSegments = [], foods = [], extraAvoid = [], snakeScale
   )
 
   for (let attempt = 0; attempt < FOOD_MAX_SPAWN_ATTEMPTS; attempt++) {
-    const variant = pickFoodVariant()
+    const variant = pickFoodVariant(FOOD_VARIANTS)
     const point = randomSpherePoint([], 0)
     if (!point) continue
 
@@ -196,6 +231,7 @@ function spawnFood({ snakeSegments = [], foods = [], extraAvoid = [], snakeScale
 
     return {
       id: createFoodId(),
+      mode: SURFACE_MODE,
       theta: point.theta,
       phi: point.phi,
       kind: variant.kind,
@@ -205,6 +241,81 @@ function spawnFood({ snakeSegments = [], foods = [], extraAvoid = [], snakeScale
       createdAt: Date.now(),
     }
   }
+  return null
+}
+
+function randomDirection3() {
+  const v = new THREE.Vector3(
+    Math.random() * 2 - 1,
+    Math.random() * 2 - 1,
+    Math.random() * 2 - 1
+  )
+  if (v.lengthSq() < 0.0001) return new THREE.Vector3(0, 1, 0)
+  return v.normalize()
+}
+
+function spawnSpaceFood({
+  foods = [],
+  snakePoints = [],
+  planets = [],
+  snakeScale = 1,
+} = {}) {
+  const snakeAvoidDist = Math.max(
+    SPACE_FOOD_PLAYER_SAFE_MARGIN,
+    BASE_SNAKE_SIZE_MULT * Math.max(1, snakeScale) * 2.1
+  )
+
+  for (let attempt = 0; attempt < FOOD_MAX_SPAWN_ATTEMPTS * 4; attempt++) {
+    const variant = pickFoodVariant(SPACE_FOOD_VARIANTS)
+    const dir = randomDirection3()
+    const dist = randRange(SPACE_FOOD_MIN_DIST, SPACE_FOOD_MAX_DIST)
+    const pos = dir.multiplyScalar(dist)
+    let blocked = false
+
+    if (pos.length() < SPHERE_RADIUS + SPACE_FOOD_PLANET_SAFE_MARGIN) {
+      continue
+    }
+
+    for (const planet of planets) {
+      const pp = new THREE.Vector3(...planet.position)
+      if (pos.distanceTo(pp) < planet.radius + SPACE_FOOD_PLANET_SAFE_MARGIN) {
+        blocked = true
+        break
+      }
+    }
+    if (blocked) continue
+
+    for (const sp of snakePoints) {
+      const sv = new THREE.Vector3(...sp.position)
+      if (pos.distanceTo(sv) < snakeAvoidDist) {
+        blocked = true
+        break
+      }
+    }
+    if (blocked) continue
+
+    for (const existing of foods) {
+      if (existing.mode !== SPACE_MODE || !existing.position) continue
+      const ev = new THREE.Vector3(...existing.position)
+      if (pos.distanceTo(ev) < SPACE_FOOD_FOOD_SAFE_MARGIN) {
+        blocked = true
+        break
+      }
+    }
+    if (blocked) continue
+
+    return {
+      id: createFoodId(),
+      mode: SPACE_MODE,
+      position: [pos.x, pos.y, pos.z],
+      kind: variant.kind,
+      basePoints: variant.basePoints,
+      sizeRatio: THREE.MathUtils.clamp(variant.sizeRatio * SPACE_FOOD_SIZE_BIAS, 0.92, 1.15),
+      color: variant.color,
+      createdAt: Date.now(),
+    }
+  }
+
   return null
 }
 
@@ -467,6 +578,80 @@ function createRandomPlanetLayout() {
   })
 }
 
+function createSpaceGameplayPlanets() {
+  const library = PLANET_LIBRARY.filter((planet) => (
+    planet.name !== 'Earth' && planet.name !== 'Earth Night'
+  ))
+  const directions = shuffleArray(makeFibonacciDirections(library.length))
+  const placed = []
+
+  return library.map((planet, i) => {
+    const direction = directions[i]
+    const radius = randRange(SPACE_PLANET_RADIUS_MIN, SPACE_PLANET_RADIUS_MAX)
+    let distance = THREE.MathUtils.lerp(
+      SPACE_PLANET_DIST_MIN,
+      SPACE_PLANET_DIST_MAX,
+      i / (library.length - 1 || 1)
+    ) + randRange(-45, 45)
+
+    let position = direction.clone().multiplyScalar(distance)
+    for (let attempt = 0; attempt < 220; attempt++) {
+      let overlap = false
+      for (const existing of placed) {
+        const minDist = existing.radius + radius + SPACE_PLANET_GAP
+        if (position.distanceTo(existing.position) < minDist) {
+          position = direction.clone().multiplyScalar(position.length() + randRange(10, 28))
+          overlap = true
+          break
+        }
+      }
+
+      // Keep planets from overlapping the playable sphere at origin.
+      if (position.length() < SPHERE_RADIUS + radius + 18) {
+        position = direction.clone().multiplyScalar(SPHERE_RADIUS + radius + 18)
+        overlap = true
+      }
+      if (!overlap) break
+    }
+
+    placed.push({ position, radius })
+
+    return {
+      ...planet,
+      position: [position.x, position.y, position.z],
+      radius,
+      axialTiltDeg: randRange(0, 180),
+      spinSpeed: randRange(0.0007, 0.0038) * (Math.random() < 0.5 ? -1 : 1),
+      ring: planet.hasRing,
+      ringTilt: THREE.MathUtils.degToRad(randRange(8, 72)),
+      initialRotation: [
+        randRange(0, Math.PI * 2),
+        randRange(0, Math.PI * 2),
+        randRange(0, Math.PI * 2),
+      ],
+    }
+  })
+}
+
+function getOrientationFromDirection(position, direction, fallbackUp = new THREE.Vector3(0, 1, 0)) {
+  const forward = direction.clone().normalize()
+  let up = position.clone().normalize()
+  if (up.lengthSq() < 0.001 || Math.abs(forward.dot(up)) > 0.94) {
+    up = fallbackUp.clone()
+  }
+
+  const right = new THREE.Vector3().crossVectors(forward, up).normalize()
+  if (right.lengthSq() < 0.0001) {
+    right.set(1, 0, 0)
+  }
+  up = new THREE.Vector3().crossVectors(right, forward).normalize()
+
+  const m = new THREE.Matrix4()
+  m.makeBasis(right, up, forward.clone().negate())
+  m.setPosition(position)
+  return { position, quaternion: new THREE.Quaternion().setFromRotationMatrix(m) }
+}
+
 function useConfiguredTexture(textureUrl, { lowSpec = false } = {}) {
   const texture = useLoader(THREE.TextureLoader, textureUrl)
   useMemo(() => {
@@ -591,6 +776,7 @@ function UniverseBackdrop() {
 }
 
 function DistantPlanet({
+  name,
   textureUrl,
   position,
   radius,
@@ -600,6 +786,8 @@ function DistantPlanet({
   axialTiltDeg = 0,
   isStar = false,
   initialRotation = [0, 0, 0],
+  wireOpacity = 0,
+  dimmed = false,
 }) {
   const ref = useRef()
   const texture = useConfiguredTexture(textureUrl)
@@ -622,11 +810,17 @@ function DistantPlanet({
           ) : (
             <meshBasicMaterial
               map={texture}
-              color="#ffffff"
+              color={dimmed ? '#9aaec1' : '#ffffff'}
               fog={false}
             />
           )}
         </mesh>
+        {wireOpacity > 0 && (
+          <mesh>
+            <sphereGeometry args={[radius * 1.002, 28, 28]} />
+            <meshBasicMaterial color="#00F0FF" wireframe transparent opacity={wireOpacity} fog={false} />
+          </mesh>
+        )}
         {ring && (
           <mesh rotation={[Math.PI / 2.4, effectiveRingTilt, 0]}>
             <torusGeometry args={[radius * 1.5, radius * 0.12, 2, 120]} />
@@ -650,67 +844,115 @@ function DistantPlanetField() {
   )
 }
 
-/* ── Globe wireframe ── */
-function GlobeFull() {
-  const earthTexture = useConfiguredTexture(earthTextureUrl, { lowSpec: false })
-  const earthNightTexture = useConfiguredTexture(earthNightTextureUrl, { lowSpec: false })
-
+function GameplayPlanetField({ planets = [] }) {
   return (
     <group>
-      <mesh>
-        <sphereGeometry args={[SPHERE_RADIUS - 0.05, 96, 96]} />
-        <meshStandardMaterial
-          map={earthTexture}
-          emissiveMap={earthNightTexture}
-          color="#ffffff"
-          roughness={0.88}
-          metalness={0.03}
-          emissive="#8aa6ff"
-          emissiveIntensity={0.32}
+      {planets.map((planet) => (
+        <DistantPlanet
+          key={`gp-${planet.name}`}
+          {...planet}
+          wireOpacity={0}
+          dimmed={false}
         />
-      </mesh>
-      <mesh>
-        <sphereGeometry args={[SPHERE_RADIUS, 42, 42]} />
-        <meshBasicMaterial color="#00F0FF" wireframe transparent opacity={0.04} />
-      </mesh>
-      <mesh rotation={[Math.PI / 2, 0, 0]}>
-        <torusGeometry args={[SPHERE_RADIUS + 0.02, 0.04, 8, 220]} />
-        <meshBasicMaterial color="#00F0FF" transparent opacity={0.12} />
-      </mesh>
+      ))}
     </group>
   )
 }
 
-function GlobeLow() {
-  const earthTexture = useConfiguredTexture(earthLowTextureUrl, { lowSpec: true })
+/* ── Playable planet styles ── */
+function SurfacePlanet({
+  textureUrl = earthTextureUrl,
+  lowSpec = false,
+  classicEarth = false,
+  lineOpacity = 0.04,
+  torusOpacity = 0.12,
+  dimTexture = false,
+}) {
+  const effectiveTextureUrl = lowSpec && textureUrl === earthTextureUrl
+    ? earthLowTextureUrl
+    : textureUrl
+  const texture = useConfiguredTexture(effectiveTextureUrl, { lowSpec })
+  const nightTexture = useConfiguredTexture(earthNightTextureUrl, { lowSpec })
 
   return (
     <group>
       <mesh>
-        <sphereGeometry args={[SPHERE_RADIUS - 0.05, 28, 28]} />
-        <meshStandardMaterial
-          map={earthTexture}
-          color="#ffffff"
-          roughness={0.92}
-          metalness={0.02}
-          emissive="#1a2b46"
-          emissiveIntensity={0.12}
-        />
+        <sphereGeometry args={[SPHERE_RADIUS - 0.05, lowSpec ? 32 : 96, lowSpec ? 32 : 96]} />
+        {classicEarth ? (
+          <meshStandardMaterial
+            map={texture}
+            emissiveMap={nightTexture}
+            color="#ffffff"
+            roughness={0.88}
+            metalness={0.03}
+            emissive="#8aa6ff"
+            emissiveIntensity={0.32}
+          />
+        ) : (
+          <meshStandardMaterial
+            map={texture}
+            color={dimTexture ? '#a8bdd2' : '#ffffff'}
+            roughness={0.92}
+            metalness={0.02}
+            emissive={dimTexture ? '#0a253f' : '#0f3d66'}
+            emissiveIntensity={dimTexture ? 0.08 : 0.14}
+          />
+        )}
       </mesh>
       <mesh>
-        <sphereGeometry args={[SPHERE_RADIUS, 20, 20]} />
-        <meshBasicMaterial color="#00F0FF" wireframe transparent opacity={0.05} />
+        <sphereGeometry args={[SPHERE_RADIUS, lowSpec ? 20 : 42, lowSpec ? 20 : 42]} />
+        <meshBasicMaterial color="#00F0FF" wireframe transparent opacity={lineOpacity} />
+      </mesh>
+      {!lowSpec && (
+        <mesh rotation={[Math.PI / 2, 0, 0]}>
+          <torusGeometry args={[SPHERE_RADIUS + 0.02, 0.04, 8, 220]} />
+          <meshBasicMaterial color="#00F0FF" transparent opacity={torusOpacity} />
+        </mesh>
+      )}
+    </group>
+  )
+}
+
+function SpaceCenterPlanet({ textureUrl = earthTextureUrl, lowSpec = false }) {
+  const texture = useConfiguredTexture(textureUrl, { lowSpec })
+  return (
+    <group>
+      <mesh>
+        <sphereGeometry args={[SPHERE_RADIUS - 0.05, lowSpec ? 28 : 72, lowSpec ? 28 : 72]} />
+        <meshStandardMaterial
+          map={texture}
+          color="#ffffff"
+          roughness={0.95}
+          metalness={0.01}
+          emissive="#091a2d"
+          emissiveIntensity={0.06}
+        />
       </mesh>
     </group>
   )
 }
 
 /* ── Snake segment on sphere ── */
-function SnakeSegment({ theta, phi, heading, index, isHead, flash, snakeScale = 1, lowSpec = false }) {
-  const orient = useMemo(
-    () => getOrientationOnSphere(theta, phi, heading),
-    [theta, phi, heading]
-  )
+function SnakeSegment({
+  theta,
+  phi,
+  heading,
+  position = null,
+  direction = null,
+  index,
+  isHead,
+  flash,
+  snakeScale = 1,
+  lowSpec = false,
+}) {
+  const orient = useMemo(() => {
+    if (position && direction) {
+      const p = new THREE.Vector3(position[0], position[1], position[2])
+      const d = new THREE.Vector3(direction[0], direction[1], direction[2])
+      return getOrientationFromDirection(p, d)
+    }
+    return getOrientationOnSphere(theta, phi, heading)
+  }, [theta, phi, heading, position, direction])
   const baseColor = isHead ? '#00F0FF' : '#00C8DD'
   const emissiveColor = isHead ? '#00F0FF' : '#008899'
   const intensity = isHead ? 3.2 : Math.max(0.35, 1.35 - index * 0.03)
@@ -735,22 +977,39 @@ function SnakeSegment({ theta, phi, heading, index, isHead, flash, snakeScale = 
 /* ── Food on sphere ── */
 function FoodItem({ food, snakeScale = 1, lowSpec = false }) {
   const ref = useRef()
-  const { theta, phi, color = '#ADFF00', sizeRatio = 1 } = food
-  const baseOrient = useMemo(
-    () => getOrientationOnSphere(theta, phi),
-    [theta, phi]
-  )
+  const {
+    theta,
+    phi,
+    mode = SURFACE_MODE,
+    position,
+    color = '#ADFF00',
+    sizeRatio = 1,
+  } = food
+  const baseOrient = useMemo(() => {
+    if (mode === SPACE_MODE && position) {
+      const p = new THREE.Vector3(position[0], position[1], position[2])
+      return getOrientationFromDirection(p, p.clone().normalize())
+    }
+    return getOrientationOnSphere(theta, phi)
+  }, [mode, position, theta, phi])
 
   const scaledSize = computeFoodRenderRadius(snakeScale, sizeRatio)
 
   useFrame((_, delta) => {
     if (ref.current) {
       ref.current.rotation.y += delta * 2.4
-      const normal = baseOrient.position.clone().normalize()
-      const bob = Math.sin(Date.now() * 0.0037 + phi * 3.2) * (0.22 + scaledSize * 0.08)
-      ref.current.position.copy(
-        baseOrient.position.clone().add(normal.multiplyScalar(0.26 + scaledSize * 0.95 + bob))
-      )
+      if (mode === SPACE_MODE) {
+        const wobble = Math.sin(Date.now() * 0.0022 + ref.current.position.x * 0.018) * (0.14 + scaledSize * 0.06)
+        ref.current.position.copy(
+          baseOrient.position.clone().add(new THREE.Vector3(0, wobble, 0))
+        )
+      } else {
+        const normal = baseOrient.position.clone().normalize()
+        const bob = Math.sin(Date.now() * 0.0037 + phi * 3.2) * (0.22 + scaledSize * 0.08)
+        ref.current.position.copy(
+          baseOrient.position.clone().add(normal.multiplyScalar(0.26 + scaledSize * 0.95 + bob))
+        )
+      }
     }
   })
 
@@ -837,9 +1096,11 @@ function createTextTexture(text) {
 export default function GameScene({ lowSpec = false }) {
   const {
     autopilot, colliding, collidingBlock,
-    foods, segmentCount, snakeScale,
+    foods, segmentCount, snakeScale, evolutionLevel,
+    locomotionMode, launchPromptActive, hasLeftEarth, activePlanetName,
     recordInput,
     checkIdleResume, setFoods, consumeFood,
+    setAutopilot, setLocomotionMode, setHasLeftEarth, setLaunchPromptActive, setActivePlanetName,
     triggerCollision, clearCollision, resetGame,
     setCurrentSpeed, setSpeedProfile, vBase, vMax, vMin,
     activeOverlay, setActiveOverlay,
@@ -864,6 +1125,7 @@ export default function GameScene({ lowSpec = false }) {
   const speedRef = useRef(vBase)
   const speedProfileRef = useRef({ vMin, vBase, vMax })
   const zoomRef = useRef(CAM_ELEVATION)
+  const spaceZoomRef = useRef(SPACE_ZOOM_DEFAULT)
   const touchSteerRef = useRef(0)
   const touchSteerUntilRef = useRef(0)
   const foodSpawnClockRef = useRef(0)
@@ -871,6 +1133,18 @@ export default function GameScene({ lowSpec = false }) {
   const targetTrackRef = useRef({ id: null, lastDistance: Infinity, stuckTime: 0 })
   const nearbyFoodsRef = useRef(foods)
   const nearbyFoodsClockRef = useRef(0)
+  const locomotionModeRef = useRef(locomotionMode)
+  const evolutionLevelRef = useRef(evolutionLevel)
+  const flightHeadRef = useRef(new THREE.Vector3(0, SPHERE_RADIUS + SPACE_LAUNCH_ALTITUDE, 0))
+  const flightDirRef = useRef(new THREE.Vector3(1, 0, 0))
+  const flightTrailRef = useRef([])
+  const flightSpeedRef = useRef(V_BASE)
+  const spaceLaunchGraceRef = useRef(0)
+  const touchFlightVecRef = useRef({ x: 0, y: 0, until: 0 })
+  const touchBoostActiveRef = useRef(false)
+  const surfacePlanetTextureRef = useRef(earthTextureUrl)
+  const landedPlanetNameRef = useRef(activePlanetName || 'Earth')
+  const spacePlanets = useMemo(() => createSpaceGameplayPlanets(), [])
 
   const seedFoodField = useCallback((headPoint = headRef.current, snakeSegments = segmentsRef.current) => {
     const maxFoodCount = lowSpec ? MAX_FOOD_COUNT_LOW_SPEC : MAX_FOOD_COUNT
@@ -918,6 +1192,22 @@ export default function GameScene({ lowSpec = false }) {
     collidingRef.current = false
     nearbyFoodsRef.current = []
     nearbyFoodsClockRef.current = 0
+    locomotionModeRef.current = SURFACE_MODE
+    evolutionLevelRef.current = 0
+    flightTrailRef.current = []
+    flightHeadRef.current = new THREE.Vector3(0, SPHERE_RADIUS + SPACE_LAUNCH_ALTITUDE, 0)
+    flightDirRef.current = new THREE.Vector3(1, 0, 0)
+    flightSpeedRef.current = V_BASE
+    spaceLaunchGraceRef.current = 0
+    touchFlightVecRef.current = { x: 0, y: 0, until: 0 }
+    touchBoostActiveRef.current = false
+    surfacePlanetTextureRef.current = earthTextureUrl
+    landedPlanetNameRef.current = 'Earth'
+    setLocomotionMode(SURFACE_MODE)
+    setHasLeftEarth(false)
+    setLaunchPromptActive(false)
+    setActivePlanetName('Earth')
+    setAutopilot(true)
 
     if (respawnFoods) {
       seedFoodField(headRef.current, segmentsRef.current)
@@ -925,12 +1215,26 @@ export default function GameScene({ lowSpec = false }) {
       foodsRef.current = []
       setFoods([])
     }
-  }, [resetGame, seedFoodField, setCurrentSpeed, setFoods, setSpeedProfile])
+  }, [
+    resetGame,
+    seedFoodField,
+    setCurrentSpeed,
+    setFoods,
+    setSpeedProfile,
+    setLocomotionMode,
+    setHasLeftEarth,
+    setLaunchPromptActive,
+    setActivePlanetName,
+    setAutopilot,
+  ])
 
   // Sync refs with store
   useEffect(() => { autopilotRef.current = autopilot }, [autopilot])
   useEffect(() => { segCountRef.current = segmentCount }, [segmentCount])
   useEffect(() => { snakeScaleRef.current = snakeScale }, [snakeScale])
+  useEffect(() => { evolutionLevelRef.current = evolutionLevel }, [evolutionLevel])
+  useEffect(() => { locomotionModeRef.current = locomotionMode }, [locomotionMode])
+  useEffect(() => { landedPlanetNameRef.current = activePlanetName || 'Earth' }, [activePlanetName])
   useEffect(() => {
     foodsRef.current = foods
     nearbyFoodsRef.current = foods
@@ -939,19 +1243,27 @@ export default function GameScene({ lowSpec = false }) {
   useEffect(() => { collidingRef.current = colliding }, [colliding])
 
   useEffect(() => {
-    if (!foods.length) {
-      seedFoodField()
+    if (!hasLeftEarth && evolutionLevel >= SPACE_UNLOCK_EVOLUTION_LEVEL && !launchPromptActive) {
+      setLaunchPromptActive(true)
     }
-  }, [foods.length, seedFoodField])
+  }, [evolutionLevel, hasLeftEarth, launchPromptActive, setLaunchPromptActive])
 
   useEffect(() => {
-    const maxFoodCount = lowSpec ? MAX_FOOD_COUNT_LOW_SPEC : MAX_FOOD_COUNT
+    if (locomotionMode === SURFACE_MODE && !foods.length) {
+      seedFoodField()
+    }
+  }, [foods.length, seedFoodField, locomotionMode])
+
+  useEffect(() => {
+    const maxFoodCount = locomotionMode === SPACE_MODE
+      ? (lowSpec ? SPACE_MAX_FOOD_COUNT_LOW_SPEC : SPACE_MAX_FOOD_COUNT)
+      : (lowSpec ? MAX_FOOD_COUNT_LOW_SPEC : MAX_FOOD_COUNT)
     if (foods.length > maxFoodCount) {
       const trimmed = foods.slice(-maxFoodCount)
       foodsRef.current = trimmed
       setFoods(trimmed)
     }
-  }, [foods, lowSpec, setFoods])
+  }, [foods, lowSpec, setFoods, locomotionMode])
 
   useEffect(() => {
     return () => {
@@ -961,6 +1273,119 @@ export default function GameScene({ lowSpec = false }) {
     }
   }, [])
 
+  const enterSpaceFromSurface = useCallback(() => {
+    if (locomotionModeRef.current !== SURFACE_MODE) return false
+    if (evolutionLevelRef.current < SPACE_UNLOCK_EVOLUTION_LEVEL) return false
+
+    const surfaceHead = headRef.current
+    const surfaceHeading = headingRef.current
+    const surfacePos = sphericalToCartesian(surfaceHead.theta, surfaceHead.phi)
+    const next = moveOnSphere(surfaceHead.theta, surfaceHead.phi, surfaceHeading, 1.2)
+    const nextPos = sphericalToCartesian(next.theta, next.phi)
+    const forward = nextPos.clone().sub(surfacePos).normalize()
+    const normal = surfacePos.clone().normalize()
+    const launchPos = surfacePos.clone().add(normal.multiplyScalar(SPACE_LAUNCH_ALTITUDE))
+
+    flightHeadRef.current = launchPos
+    flightDirRef.current = forward.lengthSq() > 0.0001 ? forward : new THREE.Vector3(1, 0, 0)
+    flightTrailRef.current = [{
+      position: [launchPos.x, launchPos.y, launchPos.z],
+      direction: [flightDirRef.current.x, flightDirRef.current.y, flightDirRef.current.z],
+    }]
+    // Carry over the current surface speed into space
+    const surfaceProfile = computeSnakeSpeedProfile(snakeScaleRef.current)
+    flightSpeedRef.current = speedRef.current
+    spaceLaunchGraceRef.current = 1.6
+    touchFlightVecRef.current = { x: 0, y: 0, until: 0 }
+    touchBoostActiveRef.current = false
+
+    locomotionModeRef.current = SPACE_MODE
+    setLocomotionMode(SPACE_MODE)
+    setHasLeftEarth(true)
+    setLaunchPromptActive(false)
+    setActivePlanetName('Earth')
+    landedPlanetNameRef.current = 'Earth'
+    surfacePlanetTextureRef.current = earthTextureUrl
+    setAutopilot(false)
+    setSpeedProfile(surfaceProfile)
+    setCurrentSpeed(speedRef.current)
+
+    foodsRef.current = []
+    const initialSpaceFoods = []
+    for (let i = 0; i < SPACE_FOOD_INITIAL_COUNT; i++) {
+      const item = spawnSpaceFood({
+        foods: initialSpaceFoods,
+        snakePoints: flightTrailRef.current,
+        planets: spacePlanets,
+        snakeScale: snakeScaleRef.current,
+      })
+      if (item) initialSpaceFoods.push(item)
+    }
+    foodsRef.current = initialSpaceFoods
+    setFoods(initialSpaceFoods)
+    nearbyFoodsRef.current = []
+    nearbyFoodsClockRef.current = 0
+    foodSpawnClockRef.current = 0
+
+    return true
+  }, [
+    setLocomotionMode,
+    setHasLeftEarth,
+    setLaunchPromptActive,
+    setActivePlanetName,
+    setAutopilot,
+    setSpeedProfile,
+    setCurrentSpeed,
+    setFoods,
+    spacePlanets,
+  ])
+
+  const landOnPlanet = useCallback((planet = null) => {
+    locomotionModeRef.current = SURFACE_MODE
+    setLocomotionMode(SURFACE_MODE)
+    setHasLeftEarth(true)
+    setLaunchPromptActive(false)
+    setAutopilot(false)
+
+    const nextPlanetName = planet?.name || 'Earth'
+    setActivePlanetName(nextPlanetName)
+    landedPlanetNameRef.current = nextPlanetName
+    surfacePlanetTextureRef.current = planet?.textureUrl || earthTextureUrl
+
+    const baseHead = { theta: Math.PI / 2, phi: 0 }
+    headRef.current = baseHead
+    headingRef.current = 0
+    trailRef.current = [{ theta: baseHead.theta, phi: baseHead.phi, heading: 0 }]
+    segmentsRef.current = [{ theta: baseHead.theta, phi: baseHead.phi, heading: 0 }]
+
+    const profile = computeSnakeSpeedProfile(snakeScaleRef.current)
+    speedRef.current = profile.vBase
+    speedProfileRef.current = profile
+    setSpeedProfile(profile)
+    setCurrentSpeed(profile.vBase)
+    astarPathRef.current = []
+    astarRecalcRef.current = 0
+    targetFoodIdRef.current = null
+    targetTrackRef.current = { id: null, lastDistance: Infinity, stuckTime: 0 }
+
+    foodsRef.current = []
+    setFoods([])
+    nearbyFoodsRef.current = []
+    nearbyFoodsClockRef.current = 0
+    foodSpawnClockRef.current = 0
+    seedFoodField(headRef.current, segmentsRef.current)
+  }, [
+    setLocomotionMode,
+    setHasLeftEarth,
+    setLaunchPromptActive,
+    setAutopilot,
+    setActivePlanetName,
+    setCurrentSpeed,
+    setSpeedProfile,
+    setFoods,
+    seedFoodField,
+  ])
+
   // Scroll wheel zoom
   useEffect(() => {
     if (lowSpec) return
@@ -968,7 +1393,11 @@ export default function GameScene({ lowSpec = false }) {
     const onWheel = (e) => {
       e.preventDefault()
       const factor = Math.exp(e.deltaY * ZOOM_WHEEL_EXP)
-      zoomRef.current = Math.max(ZOOM_MIN, zoomRef.current * factor)
+      if (locomotionModeRef.current === SPACE_MODE) {
+        spaceZoomRef.current = Math.max(ZOOM_MIN, spaceZoomRef.current * factor)
+      } else {
+        zoomRef.current = Math.max(ZOOM_MIN, zoomRef.current * factor)
+      }
     }
     const canvas = document.querySelector('canvas')
     if (canvas) canvas.addEventListener('wheel', onWheel, { passive: false })
@@ -989,6 +1418,7 @@ export default function GameScene({ lowSpec = false }) {
     let swipeTracking = false
     let swipeStartX = 0
     let swipeStartY = 0
+    let lastTapTs = 0
 
     const getTouchDist = (a, b) => {
       const dx = a.clientX - b.clientX
@@ -997,6 +1427,8 @@ export default function GameScene({ lowSpec = false }) {
     }
 
     const onTouchStart = (e) => {
+      const now = performance.now()
+      const mode = locomotionModeRef.current
       if (e.touches.length === 2) {
         pinchDist = getTouchDist(e.touches[0], e.touches[1])
         swipeTracking = false
@@ -1007,19 +1439,51 @@ export default function GameScene({ lowSpec = false }) {
         swipeStartX = t.clientX
         swipeStartY = t.clientY
         swipeTracking = true
+        if (mode === SPACE_MODE) {
+          if (now - lastTapTs < 280) {
+            touchBoostActiveRef.current = true
+          }
+          lastTapTs = now
+        } else if (mode === SURFACE_MODE) {
+          if (now - lastTapTs < 280) {
+            e.preventDefault()
+            enterSpaceFromSurface()
+          }
+          lastTapTs = now
+        }
       }
     }
 
     const onTouchMove = (e) => {
+      const mode = locomotionModeRef.current
       if (e.touches.length === 2) {
         if (lowSpec) return
         e.preventDefault()
         const nextDist = getTouchDist(e.touches[0], e.touches[1])
         if (pinchDist && nextDist > 0) {
           const factor = pinchDist / nextDist
-          zoomRef.current = Math.max(ZOOM_MIN, zoomRef.current * factor)
+          if (locomotionModeRef.current === SPACE_MODE) {
+            spaceZoomRef.current = Math.max(ZOOM_MIN, spaceZoomRef.current * factor)
+          } else {
+            zoomRef.current = Math.max(ZOOM_MIN, zoomRef.current * factor)
+          }
         }
         pinchDist = nextDist
+        return
+      }
+
+      if (mode === SPACE_MODE && e.touches.length === 1) {
+        const t = e.touches[0]
+        const dx = t.clientX - swipeStartX
+        const dy = t.clientY - swipeStartY
+        const nx = THREE.MathUtils.clamp(dx / 120, -1, 1)
+        const ny = THREE.MathUtils.clamp(-dy / 120, -1, 1)
+        touchFlightVecRef.current = {
+          x: nx,
+          y: ny,
+          until: performance.now() + 140,
+        }
+        e.preventDefault()
         return
       }
 
@@ -1042,6 +1506,10 @@ export default function GameScene({ lowSpec = false }) {
     const onTouchEnd = (e) => {
       if (e.touches.length < 2) pinchDist = null
       if (e.touches.length === 0) swipeTracking = false
+      if (e.touches.length === 0) {
+        touchBoostActiveRef.current = false
+        touchFlightVecRef.current = { x: 0, y: 0, until: 0 }
+      }
     }
 
     canvas.addEventListener('touchstart', onTouchStart, { passive: false })
@@ -1055,13 +1523,16 @@ export default function GameScene({ lowSpec = false }) {
       canvas.removeEventListener('touchend', onTouchEnd)
       canvas.removeEventListener('touchcancel', onTouchEnd)
     }
-  }, [recordInput, lowSpec])
+  }, [recordInput, lowSpec, enterSpaceFromSurface])
 
   // Render state
   const [renderState, setRenderState] = useState({
     segments: [{ theta: Math.PI / 2, phi: 0, heading: 0 }],
     foods: foods.slice(0, lowSpec ? FOOD_WINDOW_SIZE_LOW_SPEC : FOOD_WINDOW_SIZE),
     snakeScale: snakeScale,
+    locomotionMode: locomotionMode,
+    surfacePlanetTexture: surfacePlanetTextureRef.current,
+    landedPlanetName: landedPlanetNameRef.current,
     flash: false,
     collidingBlockLabel: null,
   })
@@ -1074,6 +1545,15 @@ export default function GameScene({ lowSpec = false }) {
   useEffect(() => {
     const onDown = (e) => {
       const key = e.key.toLowerCase()
+      if (key === ' ' || key === 'spacebar') {
+        e.preventDefault()
+        keysDown.current.add('boost')
+        if (locomotionModeRef.current === SURFACE_MODE) {
+          enterSpaceFromSurface()
+        } else {
+          recordInput()
+        }
+      }
       if (key === 'a' || key === 'arrowleft') {
         keysDown.current.add('left'); recordInput()
       }
@@ -1086,9 +1566,29 @@ export default function GameScene({ lowSpec = false }) {
       if (key === 's' || key === 'arrowdown') {
         keysDown.current.add('brake'); recordInput()
       }
+      // Debug: backtick to instantly reach evolution level 3 (space unlock)
+      if (key === '`') {
+        const state = useGameStore.getState()
+        if (state.evolutionLevel < SPACE_UNLOCK_EVOLUTION_LEVEL) {
+          // Compute the correct snake scale for evolution level 3
+          let scale = 1
+          for (let lvl = 1; lvl <= SPACE_UNLOCK_EVOLUTION_LEVEL; lvl++) {
+            if (lvl === 1) scale = 6  // FIRST_EVOLUTION_SCALE
+            else scale *= 10 / 3     // EVOLUTION_SCALE_RATIO
+          }
+          snakeScaleRef.current = scale
+          evolutionLevelRef.current = SPACE_UNLOCK_EVOLUTION_LEVEL
+          useGameStore.setState({
+            evolutionLevel: SPACE_UNLOCK_EVOLUTION_LEVEL,
+            snakeScale: scale,
+            launchPromptActive: true,
+          })
+        }
+      }
     }
     const onUp = (e) => {
       const key = e.key.toLowerCase()
+      if (key === ' ' || key === 'spacebar') keysDown.current.delete('boost')
       if (key === 'a' || key === 'arrowleft') keysDown.current.delete('left')
       if (key === 'd' || key === 'arrowright') keysDown.current.delete('right')
       if (key === 'w' || key === 'arrowup') keysDown.current.delete('accel')
@@ -1100,10 +1600,16 @@ export default function GameScene({ lowSpec = false }) {
       window.removeEventListener('keydown', onDown)
       window.removeEventListener('keyup', onUp)
     }
-  }, [recordInput])
+  }, [recordInput, enterSpaceFromSurface])
 
   useEffect(() => {
     const interval = setInterval(() => {
+      if (locomotionModeRef.current !== SURFACE_MODE) {
+        steerRef.current = 0
+        throttleRef.current = 0
+        return
+      }
+
       const left = keysDown.current.has('left')
       const right = keysDown.current.has('right')
       if (left && !right) steerRef.current = -1
@@ -1122,9 +1628,56 @@ export default function GameScene({ lowSpec = false }) {
   const handleNavClick = useCallback((overlayId) => { setActiveOverlay(overlayId) }, [setActiveOverlay])
   const { camera } = useThree()
 
+  const buildSpaceSegmentsFromTrail = useCallback((trail, segmentCount, segmentSpacing) => {
+    if (!trail.length) return []
+    const segments = [{
+      position: trail[0].position,
+      direction: trail[0].direction,
+      mode: SPACE_MODE,
+    }]
+
+    let trailIdx = 0
+    let accumDist = 0
+    for (let i = 1; i < segmentCount && trailIdx < trail.length - 1; i++) {
+      const targetDist = i * segmentSpacing
+      while (trailIdx < trail.length - 1 && accumDist < targetDist) {
+        const a = trail[trailIdx]
+        const b = trail[trailIdx + 1]
+        const av = new THREE.Vector3(...a.position)
+        const bv = new THREE.Vector3(...b.position)
+        const d = av.distanceTo(bv)
+        if (d <= 0.00001) {
+          trailIdx += 1
+          continue
+        }
+
+        if (accumDist + d >= targetDist) {
+          const t = (targetDist - accumDist) / d
+          const pos = av.lerp(bv, t)
+          const dirA = new THREE.Vector3(...a.direction)
+          const dirB = new THREE.Vector3(...b.direction)
+          const dir = dirA.lerp(dirB, t).normalize()
+          segments.push({
+            position: [pos.x, pos.y, pos.z],
+            direction: [dir.x, dir.y, dir.z],
+            mode: SPACE_MODE,
+          })
+          break
+        }
+
+        accumDist += d
+        trailIdx += 1
+      }
+    }
+
+    return segments
+  }, [])
+
   useFrame((_, delta) => {
     delta = Math.min(delta, MAX_FRAME_DELTA)
-    checkIdleResume()
+    if (locomotionModeRef.current === SURFACE_MODE) {
+      checkIdleResume()
+    }
 
     if (collidingRef.current) {
       flashTimerRef.current += delta
@@ -1135,6 +1688,219 @@ export default function GameScene({ lowSpec = false }) {
         flash: flashOn,
         collidingBlockLabel: collidingBlock,
       }))
+      return
+    }
+
+    if (locomotionModeRef.current === SPACE_MODE) {
+      // Use the same speed profile as surface mode for consistency
+      const spaceProfile = computeSnakeSpeedProfile(snakeScaleRef.current)
+      const { vMin: dynVMin, vBase: dynVBase, vMax: dynVMax } = spaceProfile
+      const profileRef = speedProfileRef.current
+      if (
+        Math.abs(profileRef.vMin - dynVMin) > 0.001 ||
+        Math.abs(profileRef.vBase - dynVBase) > 0.001 ||
+        Math.abs(profileRef.vMax - dynVMax) > 0.001
+      ) {
+        speedProfileRef.current = spaceProfile
+        setSpeedProfile(spaceProfile)
+      }
+
+      let speed = THREE.MathUtils.clamp(flightSpeedRef.current, dynVMin, dynVMax)
+      const now = performance.now()
+      const keyLeft = keysDown.current.has('left')
+      const keyRight = keysDown.current.has('right')
+      const keyUp = keysDown.current.has('accel')
+      const keyDown = keysDown.current.has('brake')
+      const keyBoost = keysDown.current.has('boost')
+      const touchVec = now < touchFlightVecRef.current.until
+        ? touchFlightVecRef.current
+        : { x: 0, y: 0 }
+
+      const inputX = Math.abs(touchVec.x) > 0.01
+        ? touchVec.x
+        : ((keyRight ? 1 : 0) - (keyLeft ? 1 : 0))
+      const inputY = Math.abs(touchVec.y) > 0.01
+        ? touchVec.y
+        : ((keyUp ? 1 : 0) - (keyDown ? 1 : 0))
+      const boosting = keyBoost || touchBoostActiveRef.current
+
+      // Use snake-direction-relative axes for steering (not camera-relative)
+      // This prevents sudden turns when the camera lerps to a new position
+      const dir = flightDirRef.current.clone().normalize()
+      const refUp = new THREE.Vector3(0, 1, 0)
+      let steerRight = new THREE.Vector3().crossVectors(dir, refUp).normalize()
+      if (steerRight.lengthSq() < 0.001) {
+        steerRight = new THREE.Vector3().crossVectors(dir, new THREE.Vector3(1, 0, 0)).normalize()
+      }
+      const steerUp = new THREE.Vector3().crossVectors(steerRight, dir).normalize()
+
+      const steerVec = new THREE.Vector3()
+        .addScaledVector(steerRight, inputX)
+        .addScaledVector(steerUp, inputY)
+
+      if (steerVec.lengthSq() > 0.00001) {
+        const desiredDir = dir
+          .clone()
+          .addScaledVector(steerVec.normalize(), SPACE_TURN_SPEED * delta)
+          .normalize()
+        dir.lerp(desiredDir, THREE.MathUtils.clamp(delta * SPACE_CONTROL_SMOOTH, 0, 1)).normalize()
+      }
+
+      if (boosting) {
+        speed += ACCEL_RATE * delta
+      } else {
+        if (speed > dynVBase) speed -= FRICTION * delta
+        else speed += FRICTION * 0.35 * delta
+      }
+      speed = THREE.MathUtils.clamp(speed, dynVMin, dynVMax)
+
+      spaceLaunchGraceRef.current = Math.max(0, spaceLaunchGraceRef.current - delta)
+
+      const headPos = flightHeadRef.current.clone().addScaledVector(dir, speed * delta)
+      const maxRange = SPACE_FOOD_MAX_DIST + 120
+      if (headPos.length() > maxRange) {
+        headPos.setLength(maxRange)
+        dir.lerp(headPos.clone().normalize().negate(), 0.22).normalize()
+      }
+      const minRange = SPHERE_RADIUS + 2.4
+      if (headPos.length() < minRange) {
+        headPos.setLength(minRange)
+        dir.lerp(headPos.clone().normalize(), 0.2).normalize()
+      }
+
+      flightHeadRef.current = headPos
+      flightDirRef.current = dir
+      flightSpeedRef.current = speed
+      speedRef.current = speed
+      setCurrentSpeed(speed)
+
+      flightTrailRef.current.unshift({
+        position: [headPos.x, headPos.y, headPos.z],
+        direction: [dir.x, dir.y, dir.z],
+      })
+
+      const segmentSpacing = BASE_SEGMENT_SPACING * Math.max(0.2, snakeScaleRef.current)
+      const moveDist = Math.max(0.001, speed * delta)
+      const requiredTrailDist = segmentSpacing * Math.max(segCountRef.current + 2, 8)
+      const trailTarget = Math.ceil((requiredTrailDist / moveDist) * 1.5)
+      const maxTrailLength = lowSpec
+        ? Math.max(240, Math.min(3200, trailTarget))
+        : Math.max(1400, Math.min(36000, trailTarget))
+      if (flightTrailRef.current.length > maxTrailLength) {
+        flightTrailRef.current.length = maxTrailLength
+      }
+
+      const spaceSegments = buildSpaceSegmentsFromTrail(
+        flightTrailRef.current,
+        segCountRef.current,
+        segmentSpacing
+      )
+      segmentsRef.current = spaceSegments
+
+      const skipCount = Math.max(SELF_COLLIDE_SEGMENT_SKIP, Math.ceil(3 + Math.pow(snakeScaleRef.current, 0.18)))
+      if (spaceSegments.length > skipCount + 1) {
+        const headV = new THREE.Vector3(...spaceSegments[0].position)
+        for (let si = skipCount; si < spaceSegments.length; si++) {
+          const segV = new THREE.Vector3(...spaceSegments[si].position)
+          if (headV.distanceTo(segV) < computeSelfCollisionDistance(0, si, snakeScaleRef.current)) {
+            hardReset(true)
+            return
+          }
+        }
+      }
+
+      const spaceFoods = foodsRef.current.filter((item) => item.mode === SPACE_MODE && Array.isArray(item.position))
+      for (const item of spaceFoods) {
+        const foodPos = new THREE.Vector3(...item.position)
+        const foodDist = headPos.distanceTo(foodPos)
+        const collectDist = computeFoodCollisionDistance(snakeScaleRef.current, item.sizeRatio) * 1.16 + speed * delta * 0.4
+        if (foodDist > collectDist) continue
+
+        const outcome = consumeFood(item.id, item.basePoints)
+        const nextState = useGameStore.getState()
+        foodsRef.current = nextState.foods
+        segCountRef.current = nextState.segmentCount
+        snakeScaleRef.current = nextState.snakeScale
+        nearbyFoodsClockRef.current = 0
+        if (outcome?.evolved) {
+          const keep = Math.max(42, Math.floor(flightTrailRef.current.length * (2 / 3)))
+          flightTrailRef.current = flightTrailRef.current.slice(0, keep)
+        }
+        break
+      }
+
+      const spawnInterval = lowSpec ? SPACE_FOOD_SPAWN_INTERVAL * 1.5 : SPACE_FOOD_SPAWN_INTERVAL
+      const maxFoodCount = lowSpec ? SPACE_MAX_FOOD_COUNT_LOW_SPEC : SPACE_MAX_FOOD_COUNT
+      const spawnBudget = lowSpec ? MAX_FOOD_SPAWNS_PER_FRAME_LOW_SPEC : MAX_FOOD_SPAWNS_PER_FRAME
+      foodSpawnClockRef.current += delta
+      if (foodsRef.current.length >= maxFoodCount) {
+        foodSpawnClockRef.current = Math.min(foodSpawnClockRef.current, spawnInterval)
+      }
+      let spawnedThisFrame = 0
+      while (
+        foodSpawnClockRef.current >= spawnInterval &&
+        foodsRef.current.length < maxFoodCount &&
+        spawnedThisFrame < spawnBudget
+      ) {
+        foodSpawnClockRef.current -= spawnInterval
+        const newFood = spawnSpaceFood({
+          foods: foodsRef.current,
+          snakePoints: spaceSegments,
+          planets: spacePlanets,
+          snakeScale: snakeScaleRef.current,
+        })
+        if (newFood) {
+          const nextFoods = [...foodsRef.current, newFood]
+          foodsRef.current = nextFoods
+          setFoods(nextFoods)
+          spawnedThisFrame += 1
+        }
+      }
+
+      if (spaceLaunchGraceRef.current <= 0) {
+        const collisionRadius = computeSegmentRadius(0, snakeScaleRef.current) * 0.8
+        for (const planet of spacePlanets) {
+          const p = new THREE.Vector3(...planet.position)
+          if (headPos.distanceTo(p) <= planet.radius + collisionRadius) {
+            landOnPlanet(planet)
+            return
+          }
+        }
+      }
+
+      // Third-person camera: behind + above the snake
+      const zoomDist = lowSpec ? SPACE_ZOOM_DEFAULT : spaceZoomRef.current
+      const followDist = SPACE_CAMERA_FOLLOW * (zoomDist / SPACE_ZOOM_DEFAULT)
+      const heightDist = SPACE_CAMERA_HEIGHT * (zoomDist / SPACE_ZOOM_DEFAULT)
+
+      // Build a stable "up" vector perpendicular to the flight direction
+      const camWorldUp = new THREE.Vector3(0, 1, 0)
+      let camUpDir = new THREE.Vector3().crossVectors(dir, camWorldUp)
+      if (camUpDir.lengthSq() < 0.001) {
+        camUpDir = new THREE.Vector3().crossVectors(dir, new THREE.Vector3(1, 0, 0))
+      }
+      camUpDir = new THREE.Vector3().crossVectors(camUpDir, dir).normalize()
+
+      const camBack = dir.clone().multiplyScalar(-followDist)
+      const camUpOffset = camUpDir.multiplyScalar(heightDist)
+      const camTarget = headPos.clone().add(camBack).add(camUpOffset)
+      const lookAt = headPos.clone().add(dir.clone().multiplyScalar(SPACE_CAMERA_LOOKAHEAD))
+      camera.position.lerp(camTarget, delta * SPACE_CAMERA_SMOOTH)
+      camera.lookAt(lookAt)
+
+      const spaceRenderFoods = foodsRef.current
+        .filter((item) => item.mode === SPACE_MODE)
+        .slice(0, lowSpec ? 48 : 160)
+      setRenderState({
+        segments: spaceSegments,
+        foods: spaceRenderFoods,
+        snakeScale: snakeScaleRef.current,
+        locomotionMode: SPACE_MODE,
+        surfacePlanetTexture: surfacePlanetTextureRef.current,
+        landedPlanetName: landedPlanetNameRef.current,
+        flash: false,
+        collidingBlockLabel: null,
+      })
       return
     }
 
@@ -1182,6 +1948,7 @@ export default function GameScene({ lowSpec = false }) {
     const blockCollisionDist = computeBlockCollisionDistance(snakeScaleRef.current)
     const cachedSegments = segmentsRef.current
     const bodyObstacles = sampleBodyObstacles(cachedSegments)
+    const surfaceFoodsPool = foodsRef.current.filter((item) => !item.mode || item.mode === SURFACE_MODE)
     const scaleForTurn = Math.max(1, snakeScaleRef.current)
     const autopilotTurnFactor = THREE.MathUtils.clamp(
       1 / Math.pow(scaleForTurn, AUTOPILOT_TURN_DAMP_EXP),
@@ -1213,9 +1980,9 @@ export default function GameScene({ lowSpec = false }) {
     if (
       nearbyFoodsClockRef.current <= 0 ||
       nearbyFoodsRef.current.length === 0 ||
-      foodsRef.current.length <= foodWindowSize
+      surfaceFoodsPool.length <= foodWindowSize
     ) {
-      nearbyFoodsRef.current = selectNearestFoods(foodsRef.current, head, foodWindowSize)
+      nearbyFoodsRef.current = selectNearestFoods(surfaceFoodsPool, head, foodWindowSize)
       nearbyFoodsClockRef.current = windowRecalcInterval
     }
     const nearbyFoods = nearbyFoodsRef.current
@@ -1515,6 +2282,9 @@ export default function GameScene({ lowSpec = false }) {
             segments: [{ theta: Math.PI / 2, phi: 0, heading: 0 }],
             foods: nearbyFoods,
             snakeScale: snakeScaleRef.current,
+            locomotionMode: SURFACE_MODE,
+            surfacePlanetTexture: surfacePlanetTextureRef.current,
+            landedPlanetName: landedPlanetNameRef.current,
             flash: false,
             collidingBlockLabel: null,
           })
@@ -1554,13 +2324,13 @@ export default function GameScene({ lowSpec = false }) {
     const maxFoodCount = lowSpec ? MAX_FOOD_COUNT_LOW_SPEC : MAX_FOOD_COUNT
     const spawnBudget = lowSpec ? MAX_FOOD_SPAWNS_PER_FRAME_LOW_SPEC : MAX_FOOD_SPAWNS_PER_FRAME
     foodSpawnClockRef.current += delta
-    if (foodsRef.current.length >= maxFoodCount) {
+    if (surfaceFoodsPool.length >= maxFoodCount) {
       foodSpawnClockRef.current = Math.min(foodSpawnClockRef.current, spawnInterval)
     }
     let spawnedThisFrame = 0
     while (
       foodSpawnClockRef.current >= spawnInterval &&
-      foodsRef.current.length < maxFoodCount &&
+      surfaceFoodsPool.length + spawnedThisFrame < maxFoodCount &&
       spawnedThisFrame < spawnBudget
     ) {
       foodSpawnClockRef.current -= spawnInterval
@@ -1609,6 +2379,9 @@ export default function GameScene({ lowSpec = false }) {
       segments,
       foods: nearbyFoods,
       snakeScale: snakeScaleRef.current,
+      locomotionMode: SURFACE_MODE,
+      surfacePlanetTexture: surfacePlanetTextureRef.current,
+      landedPlanetName: landedPlanetNameRef.current,
       flash: false,
       collidingBlockLabel: collidingBlock,
     })
@@ -1618,6 +2391,9 @@ export default function GameScene({ lowSpec = false }) {
     segments,
     foods: renderFoods,
     snakeScale: renderSnakeScale,
+    locomotionMode: renderLocomotionMode,
+    surfacePlanetTexture,
+    landedPlanetName,
     flash,
     collidingBlockLabel,
   } = renderState
@@ -1626,6 +2402,11 @@ export default function GameScene({ lowSpec = false }) {
     <>
       {!lowSpec && <UniverseBackdrop />}
       {!lowSpec && <DistantPlanetField />}
+      {!lowSpec && renderLocomotionMode === SPACE_MODE && (
+        <GameplayPlanetField
+          planets={spacePlanets}
+        />
+      )}
 
       <ambientLight intensity={0.12} />
       <pointLight position={[0, 60, 0]} intensity={0.8} color="#00F0FF" distance={120} />
@@ -1633,7 +2414,18 @@ export default function GameScene({ lowSpec = false }) {
       <pointLight position={[50, 30, 50]} intensity={0.5} color="#ADFF00" distance={100} />
       <pointLight position={[0, -60, 0]} intensity={0.3} color="#00F0FF" distance={100} />
 
-      {lowSpec ? <GlobeLow /> : <GlobeFull />}
+      {renderLocomotionMode === SPACE_MODE ? (
+        <SpaceCenterPlanet textureUrl={surfacePlanetTexture || earthTextureUrl} lowSpec={lowSpec} />
+      ) : (
+        <SurfacePlanet
+          textureUrl={surfacePlanetTexture || earthTextureUrl}
+          lowSpec={lowSpec}
+          classicEarth={!hasLeftEarth && (surfacePlanetTexture || earthTextureUrl) === earthTextureUrl}
+          lineOpacity={hasLeftEarth ? 0.08 : 0.04}
+          torusOpacity={hasLeftEarth ? 0.16 : 0.12}
+          dimTexture={hasLeftEarth}
+        />
+      )}
 
       {segments.map((seg, i) => (
         <SnakeSegment
@@ -1641,6 +2433,8 @@ export default function GameScene({ lowSpec = false }) {
           theta={seg.theta}
           phi={seg.phi}
           heading={seg.heading}
+          position={seg.position}
+          direction={seg.direction}
           index={i}
           isHead={i === 0}
           flash={flash}
@@ -1658,7 +2452,7 @@ export default function GameScene({ lowSpec = false }) {
         />
       ))}
 
-      {NAV_BLOCKS.map((block) => (
+      {renderLocomotionMode === SURFACE_MODE && NAV_BLOCKS.map((block) => (
         <NavBlock
           key={block.label}
           label={block.label}

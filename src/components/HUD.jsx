@@ -7,6 +7,8 @@ export default function HUD() {
   const vMin = useGameStore(s => s.vMin)
   const vBase = useGameStore(s => s.vBase)
   const vMax = useGameStore(s => s.vMax)
+  const locomotionMode = useGameStore(s => s.locomotionMode)
+  const launchPromptActive = useGameStore(s => s.launchPromptActive)
 
   const BASE_CRUISE_PCT = 10
   const minBand = 1
@@ -16,6 +18,11 @@ export default function HUD() {
     ? BASE_CRUISE_PCT + ((currentSpeed - vBase) / aboveBaseRange) * (100 - BASE_CRUISE_PCT)
     : BASE_CRUISE_PCT - ((vBase - currentSpeed) / belowBaseRange) * (BASE_CRUISE_PCT - minBand)
   const speedPct = Math.round(Math.max(minBand, Math.min(100, speedPctRaw)))
+  const instructions = locomotionMode === 'space'
+    ? 'A/D or ←/→ Fly Left/Right · W/S or ↑/↓ Fly Up/Down · Hold SPACE Accelerate'
+    : launchPromptActive
+      ? 'A/D or ←/→ Steer · W/S or ↑/↓ Speed · SPACE: Leave the Planet (Double-Tap on Mobile)'
+      : 'A/D or ←/→ Steer · W/S or ↑/↓ Speed'
 
   return (
     <div className={`hud ${colliding ? 'hud-collision' : ''}`}>
@@ -43,8 +50,8 @@ export default function HUD() {
       )}
 
       {/* Instructions */}
-      <div className="hud-instructions">
-        A/D or ←/→ Steer · W/S or ↑/↓ Speed
+      <div className={`hud-instructions ${launchPromptActive && locomotionMode !== 'space' ? 'is-highlight' : ''}`}>
+        {instructions}
       </div>
     </div>
   )

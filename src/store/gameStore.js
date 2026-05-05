@@ -16,6 +16,7 @@ const SCORE_PER_SEGMENT = 10
 const SEGMENT_COST_GROWTH_FACTOR = 5
 const FIRST_EVOLUTION_SCALE = 6
 const EVOLUTION_SCALE_RATIO = 10 / 3
+const SPACE_UNLOCK_EVOLUTION_LEVEL = 3
 
 function computeSnakeScaleAfterEvolution(currentScale, nextLevel) {
   if (nextLevel <= 0) return 1
@@ -50,6 +51,10 @@ const useGameStore = create((set, get) => ({
   scoreMultiplier: 1,
   lengthProgress: 0,
   segmentScoreCost: SCORE_PER_SEGMENT,
+  locomotionMode: 'surface',
+  hasLeftEarth: false,
+  launchPromptActive: false,
+  activePlanetName: 'Earth',
 
   // Speed state
   currentSpeed: V_BASE,
@@ -96,6 +101,10 @@ const useGameStore = create((set, get) => ({
 
   setFoods: (foods) => set({ foods }),
   addFood: (food) => set((s) => ({ foods: [...s.foods, food] })),
+  setLocomotionMode: (mode) => set({ locomotionMode: mode }),
+  setHasLeftEarth: (val) => set({ hasLeftEarth: !!val }),
+  setLaunchPromptActive: (val) => set({ launchPromptActive: !!val }),
+  setActivePlanetName: (name) => set({ activePlanetName: name || 'Earth' }),
 
   consumeFood: (foodId, basePoints) => {
     const rewardBase = Math.max(1, Number(basePoints) || 1)
@@ -121,6 +130,7 @@ const useGameStore = create((set, get) => ({
       let snakeScale = s.snakeScale
       let scoreMultiplier = foodMultiplier
       let segmentScoreCost = s.segmentScoreCost
+      let launchPromptActive = s.launchPromptActive
 
       outcome.scoreDelta = scoreDelta
 
@@ -152,6 +162,9 @@ const useGameStore = create((set, get) => ({
 
       outcome.currentScale = snakeScale
       outcome.currentSegmentCount = segmentCount
+      if (!s.hasLeftEarth && evolutionLevel >= SPACE_UNLOCK_EVOLUTION_LEVEL) {
+        launchPromptActive = true
+      }
 
       return {
         ...s,
@@ -163,6 +176,7 @@ const useGameStore = create((set, get) => ({
         evolutionLevel,
         scoreMultiplier,
         segmentScoreCost,
+        launchPromptActive,
       }
     })
 
@@ -198,6 +212,10 @@ const useGameStore = create((set, get) => ({
     scoreMultiplier: 1,
     lengthProgress: 0,
     segmentScoreCost: SCORE_PER_SEGMENT,
+    locomotionMode: 'surface',
+    hasLeftEarth: false,
+    launchPromptActive: false,
+    activePlanetName: 'Earth',
     currentSpeed: V_BASE,
     foods: [],
     lastInputTime: 0,
