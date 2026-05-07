@@ -1,0 +1,31 @@
+TOMMY REN
+Software Engineer · Creative Technologist
+
+SUMMARY
+Builds immersive, high-performance web experiences with a focus on interactive 3D systems, frontend architecture, and polished user experience.
+
+CORE SKILLS
+- JavaScript / TypeScript
+- React
+- Three.js
+- React Three Fiber
+- Zustand
+- Node.js
+- Python
+- Go
+- Docker
+- AWS
+- PostgreSQL
+- MongoDB
+
+EXPERIENCE
+- Senior Frontend Engineer — Building interactive experiences with React, rendering systems, and real-time interface design.
+- Full-Stack Developer — Shipping scalable application flows and product systems from frontend to backend.
+
+EDUCATION
+- B.Sc. Computer Science — Computer graphics, distributed systems, and modern web engineering.
+
+HIGHLIGHTS
+- Strong blend of engineering, interaction design, and performance work.
+- Focused on memorable presentation without blocking access to practical information.
+- Interested in real-time graphics, immersive UI, and developer-friendly systems.

@@ -28,3 +28,5 @@ npm-debug.log*
 # Cache
 .cache/
 requirements.md
+temp.md
+temp2.md

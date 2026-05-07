@@ -5,10 +5,9 @@ const GRID_DIVISIONS = 40
 const IDLE_TIMEOUT = 3000
 const COLLISION_DURATION = 500
 
-// Speed constants — tuned slower for smoother control
-const V_BASE = 5.0625 // default cruising speed (3/4 of previous)
-const V_MAX = 20.25   // top speed when accelerating
-const V_MIN = 2.25    // minimum crawl speed when braking
+const V_BASE = 5.0625
+const V_MAX = 20.25
+const V_MIN = 2.25
 const INITIAL_SEGMENT_COUNT = 3
 const SEGMENTS_TO_GROWTH = 15
 const COMPACT_SEGMENT_COUNT = 3
@@ -29,19 +28,29 @@ function computeFoodScoreMultiplier(level) {
   return level * 3
 }
 
-const useGameStore = create((set, get) => ({
-  // Core game state
+const DEFAULT_SECTION = 'home'
+const DEFAULT_GAMEPLAY_STATE = 'playing'
+const DEFAULT_CAMERA_MODE = 'followSnake'
+
+const createInitialState = () => ({
   score: 0,
   autopilot: true,
   colliding: false,
   collidingBlock: null,
   gameRunning: true,
 
-  // Overlay navigation (null = game view, string = overlay name)
-  activeOverlay: null,
-  setActiveOverlay: (overlay) => set({ activeOverlay: overlay }),
+  currentSection: DEFAULT_SECTION,
+  targetSection: null,
+  gameplayState: DEFAULT_GAMEPLAY_STATE,
+  cameraMode: DEFAULT_CAMERA_MODE,
+  transitionPhase: null,
+  transitionProgress: 0,
+  selectedSectionItem: null,
+  transitionSource: null,
+  reducedMotion: false,
+  inputEnabled: true,
+  gameplayFrozen: false,
 
-  // Snake state (spherical coords: theta = polar angle, phi = azimuthal)
   snakeHead: { theta: Math.PI / 2, phi: 0 },
   snakeHeading: 0,
   snakeSegments: [],
@@ -56,32 +65,136 @@ const useGameStore = create((set, get) => ({
   launchPromptActive: false,
   activePlanetName: 'Earth',
 
-  // Speed state
   currentSpeed: V_BASE,
   vBase: V_BASE,
   vMax: V_MAX,
   vMin: V_MIN,
 
-  // Food
   foods: [],
-
-  // Autopilot / idle tracking
   lastInputTime: 0,
   aStarPath: [],
 
-  // Sphere config
   sphereRadius: SPHERE_RADIUS,
   gridDivisions: GRID_DIVISIONS,
   idleTimeout: IDLE_TIMEOUT,
   collisionDuration: COLLISION_DURATION,
+})
 
-  // Actions
+const useGameStore = create((set, get) => ({
+  ...createInitialState(),
+
+  navigateToSection: (targetSection, source = 'topNav') => {
+    const destination = targetSection || DEFAULT_SECTION
+    const state = get()
+    const currentSection = state.currentSection || DEFAULT_SECTION
+
+    if (destination === currentSection && destination !== DEFAULT_SECTION) {
+      set({
+        targetSection: null,
+        gameplayState: 'sectionViewing',
+        cameraMode: 'sectionOrbit',
+        transitionPhase: null,
+        transitionProgress: 0,
+        transitionSource: source,
+        inputEnabled: false,
+        gameplayFrozen: true,
+        autopilot: false,
+        colliding: false,
+        collidingBlock: null,
+      })
+      return
+    }
+
+    set({
+      targetSection: destination,
+      gameplayState: 'transitioning',
+      cameraMode: 'cinematicPullback',
+      transitionPhase: 'pullback',
+      transitionProgress: 0,
+      transitionSource: source,
+      selectedSectionItem: null,
+      inputEnabled: false,
+      gameplayFrozen: true,
+      autopilot: false,
+      colliding: source === 'navBlock',
+      collidingBlock: source === 'navBlock' ? destination : null,
+      gameRunning: false,
+    })
+  },
+
+  setTransitionPhase: (phase) => set({ transitionPhase: phase }),
+  setTransitionProgress: (progress) => set({ transitionProgress: progress }),
+  setCameraMode: (cameraMode) => set({ cameraMode }),
+  setGameplayState: (gameplayState) => set({ gameplayState }),
+
+  completeSectionTransition: () => set((state) => {
+    const nextSection = state.targetSection || state.currentSection || DEFAULT_SECTION
+    const returningHome = nextSection === DEFAULT_SECTION
+
+    return {
+      currentSection: nextSection,
+      targetSection: null,
+      gameplayState: returningHome ? 'playing' : 'sectionViewing',
+      cameraMode: returningHome ? 'followSnake' : 'sectionOrbit',
+      transitionPhase: null,
+      transitionProgress: 0,
+      inputEnabled: returningHome,
+      gameplayFrozen: !returningHome,
+      gameRunning: returningHome,
+      autopilot: false,
+      colliding: false,
+      collidingBlock: null,
+      selectedSectionItem: returningHome ? null : state.selectedSectionItem,
+    }
+  }),
+
+  returnHome: () => {
+    const state = get()
+    if (state.currentSection === DEFAULT_SECTION) {
+      set({
+        targetSection: null,
+        gameplayState: 'playing',
+        cameraMode: 'followSnake',
+        transitionPhase: null,
+        transitionProgress: 0,
+        selectedSectionItem: null,
+        inputEnabled: true,
+        gameplayFrozen: false,
+        gameRunning: true,
+        colliding: false,
+        collidingBlock: null,
+      })
+      return
+    }
+
+    get().navigateToSection(DEFAULT_SECTION, 'topNav')
+  },
+
+  focusSectionItem: (id) => set({
+    selectedSectionItem: id,
+    cameraMode: 'sectionFocus',
+  }),
+
+  unfocusSectionItem: () => set({
+    selectedSectionItem: null,
+    cameraMode: get().currentSection === DEFAULT_SECTION ? 'followSnake' : 'sectionOrbit',
+  }),
+
+  setReducedMotion: (val) => set({ reducedMotion: !!val }),
+  setInputEnabled: (val) => set({ inputEnabled: !!val }),
+  setGameplayFrozen: (val) => set({ gameplayFrozen: !!val }),
+
   setAutopilot: (val) => set({ autopilot: val }),
 
-  recordInput: () => set({ lastInputTime: Date.now(), autopilot: false }),
+  recordInput: () => {
+    const state = get()
+    if (!state.inputEnabled || state.gameplayFrozen || state.gameplayState !== 'playing') return
+    set({ lastInputTime: Date.now(), autopilot: false })
+  },
 
   checkIdleResume: () => {
     const s = get()
+    if (s.gameplayFrozen || s.gameplayState !== 'playing') return
     if (!s.autopilot && !s.colliding && Date.now() - s.lastInputTime > IDLE_TIMEOUT) {
       set({ autopilot: true })
     }
@@ -107,6 +220,18 @@ const useGameStore = create((set, get) => ({
   setActivePlanetName: (name) => set({ activePlanetName: name || 'Earth' }),
 
   consumeFood: (foodId, basePoints) => {
+    const state = get()
+    if (state.gameplayFrozen || state.gameplayState !== 'playing') {
+      return {
+        scoreDelta: 0,
+        evolved: false,
+        evolutionCount: 0,
+        lengthGains: 0,
+        currentScale: state.snakeScale,
+        currentSegmentCount: state.segmentCount,
+      }
+    }
+
     const rewardBase = Math.max(1, Number(basePoints) || 1)
     const outcome = {
       scoreDelta: 0,
@@ -194,32 +319,11 @@ const useGameStore = create((set, get) => ({
   clearCollision: () => set({
     colliding: false,
     collidingBlock: null,
-    gameRunning: true,
+    gameRunning: !get().gameplayFrozen,
   }),
 
   resetGame: () => set({
-    score: 0,
-    autopilot: true,
-    colliding: false,
-    collidingBlock: null,
-    gameRunning: true,
-    snakeHead: { theta: Math.PI / 2, phi: 0 },
-    snakeHeading: 0,
-    snakeSegments: [],
-    segmentCount: INITIAL_SEGMENT_COUNT,
-    snakeScale: 1,
-    evolutionLevel: 0,
-    scoreMultiplier: 1,
-    lengthProgress: 0,
-    segmentScoreCost: SCORE_PER_SEGMENT,
-    locomotionMode: 'surface',
-    hasLeftEarth: false,
-    launchPromptActive: false,
-    activePlanetName: 'Earth',
-    currentSpeed: V_BASE,
-    foods: [],
-    lastInputTime: 0,
-    aStarPath: [],
+    ...createInitialState(),
   }),
 }))
 

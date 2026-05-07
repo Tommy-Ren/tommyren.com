@@ -5,13 +5,12 @@ import * as THREE from 'three'
 import GameScene from '../components/GameScene'
 import HUD from '../components/HUD'
 import TopNav from '../components/TopNav'
-import OverlayPanel from '../components/OverlayPanel'
 import MusicToggle from '../components/MusicToggle'
 import useGameStore from '../store/gameStore'
 
 export default function HomePage({ lowSpec = false }) {
   const colliding = useGameStore(s => s.colliding)
-  const activeOverlay = useGameStore(s => s.activeOverlay)
+  const currentSection = useGameStore(s => s.currentSection)
 
   return (
     <div style={{ width: '100%', height: '100%', position: 'relative' }}>
@@ -39,12 +38,7 @@ export default function HomePage({ lowSpec = false }) {
         <GameScene lowSpec={lowSpec} />
         {!lowSpec && (
           <EffectComposer>
-            <Bloom
-              intensity={1.5}
-              luminanceThreshold={0.15}
-              luminanceSmoothing={0.9}
-              mipmapBlur
-            />
+            <Bloom intensity={1.5} luminanceThreshold={0.15} luminanceSmoothing={0.9} mipmapBlur />
             {colliding && (
               <Glitch
                 delay={[0, 0]}
@@ -57,8 +51,7 @@ export default function HomePage({ lowSpec = false }) {
           </EffectComposer>
         )}
       </Canvas>
-      {!activeOverlay && <HUD />}
-      <OverlayPanel />
+      {currentSection === 'home' && <HUD />}
       <MusicToggle />
     </div>
   )

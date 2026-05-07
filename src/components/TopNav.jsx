@@ -1,31 +1,38 @@
 import { useEffect, useState } from 'react'
 import useGameStore from '../store/gameStore'
 import logo from '../assets/logo.png'
-
-const NAV_ITEMS = [
-  { label: 'Home', id: null },
-  { label: 'About Me', id: 'about' },
-  { label: 'Projects', id: 'projects' },
-  { label: 'Resume', id: 'resume' },
-  { label: 'Contact', id: 'contact' },
-]
+import { navCommandItems } from '../data/contentZones'
 
 export default function TopNav() {
-  const activeOverlay = useGameStore(s => s.activeOverlay)
-  const setActiveOverlay = useGameStore(s => s.setActiveOverlay)
+  const currentSection = useGameStore(s => s.currentSection)
+  const targetSection = useGameStore(s => s.targetSection)
+  const navigateToSection = useGameStore(s => s.navigateToSection)
+  const returnHome = useGameStore(s => s.returnHome)
   const score = useGameStore(s => s.score)
-  const autopilot = useGameStore(s => s.autopilot)
+  const gameplayState = useGameStore(s => s.gameplayState)
+  const cameraMode = useGameStore(s => s.cameraMode)
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const scoreText = Number(score || 0).toLocaleString('en-US')
+  const highlightedId = targetSection || currentSection || 'home'
 
   useEffect(() => {
     setMobileMenuOpen(false)
-  }, [activeOverlay])
+  }, [currentSection, targetSection])
 
-  const navigateTo = (id) => {
-    setActiveOverlay(id)
+  const issueNavCommand = (id) => {
+    if (!id || id === 'home') {
+      returnHome()
+    } else {
+      navigateToSection(id, 'topNav')
+    }
     setMobileMenuOpen(false)
   }
+
+  const statusText = gameplayState === 'transitioning'
+    ? (cameraMode === 'warpTravel' ? 'WARP' : 'TRANSIT')
+    : gameplayState === 'sectionViewing'
+      ? (cameraMode === 'sectionFocus' ? 'FOCUS' : 'ORBIT')
+      : 'LIVE'
 
   return (
     <>
@@ -42,24 +49,25 @@ export default function TopNav() {
             <span />
             <span />
           </button>
-          <a
-            className="top-nav-brand"
-            href="https://tianzeren.com"
-            aria-label="Go to tianzeren.com"
+          <button
+            type="button"
+            className="top-nav-brand top-nav-brand-button"
+            aria-label="Return to the central hub"
+            onClick={returnHome}
           >
             <span className="top-nav-logo">
               <img src={logo} alt="Tommy Ren logo" className="top-nav-logo-img" />
             </span>
             <span className="top-nav-title">TOMMY REN</span>
-          </a>
+          </button>
         </div>
 
         <ul className="top-nav-list">
-          {NAV_ITEMS.map((item) => (
-            <li key={item.id ?? 'home'}>
+          {navCommandItems.map((item) => (
+            <li key={item.id}>
               <button
-                className={`top-nav-link ${activeOverlay === item.id ? 'active' : ''}`}
-                onClick={() => setActiveOverlay(item.id)}
+                className={`top-nav-link ${highlightedId === item.id ? 'active' : ''}`}
+                onClick={() => issueNavCommand(item.id)}
               >
                 {item.label}
               </button>
@@ -67,32 +75,24 @@ export default function TopNav() {
           ))}
         </ul>
         <div className="top-nav-status">
-          <div className="top-nav-score">
-            SCORE: {scoreText}
-          </div>
-          {autopilot && (
+          <div className="top-nav-score">SCORE: {scoreText}</div>
+          <div className="top-nav-status-row">
             <div className="top-nav-autopilot">
               <span className="autopilot-dot" />
-              AUTOPILOT
+              {statusText}
             </div>
-          )}
+          </div>
         </div>
       </nav>
 
-      <div
-        className={`mobile-nav-backdrop ${mobileMenuOpen ? 'open' : ''}`}
-        onClick={() => setMobileMenuOpen(false)}
-      >
-        <aside
-          className={`mobile-nav-drawer ${mobileMenuOpen ? 'open' : ''}`}
-          onClick={(e) => e.stopPropagation()}
-        >
-          <div className="mobile-nav-title">Navigation</div>
-          {NAV_ITEMS.map((item) => (
+      <div className={`mobile-nav-backdrop ${mobileMenuOpen ? 'open' : ''}`} onClick={() => setMobileMenuOpen(false)}>
+        <aside className={`mobile-nav-drawer ${mobileMenuOpen ? 'open' : ''}`} onClick={(e) => e.stopPropagation()}>
+          <div className="mobile-nav-title">Cosmic Destinations</div>
+          {navCommandItems.map((item) => (
             <button
-              key={`m-${item.id ?? 'home'}`}
-              className={`mobile-nav-link ${activeOverlay === item.id ? 'active' : ''}`}
-              onClick={() => navigateTo(item.id)}
+              key={`m-${item.id}`}
+              className={`mobile-nav-link ${highlightedId === item.id ? 'active' : ''}`}
+              onClick={() => issueNavCommand(item.id)}
             >
               {item.label}
             </button>
