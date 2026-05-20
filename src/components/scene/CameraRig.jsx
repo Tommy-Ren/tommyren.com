@@ -44,15 +44,11 @@ export default function CameraRig({
       Math.cos(orbitPitch) * Math.cos(orbitYaw) * orbitDistance,
     )
     const orbitCameraPos = destinationTarget.clone().add(orbitOffset)
-    const focusDistance = Math.max(9, orbitDistance * 0.22)
-    const focusHeight = Math.max(5.4, orbitDistance * 0.1)
-    const focusCameraPos = focusedTarget.clone().add(
-      new THREE.Vector3(
-        Math.cos(orbitPitch) * Math.sin(orbitYaw) * focusDistance,
-        Math.sin(orbitPitch) * focusHeight,
-        Math.cos(orbitPitch) * Math.cos(orbitYaw) * focusDistance,
-      )
-    )
+    const focusBias = focusedTarget.clone().sub(destinationTarget)
+    const focusLookTarget = destinationTarget.clone().lerp(focusedTarget, 0.12)
+    const focusCameraPos = orbitCameraPos.clone()
+      .add(focusBias.clone().multiplyScalar(0.04))
+      .add(new THREE.Vector3(0, Math.max(0.4, orbitDistance * 0.008), 0))
 
     if (mode === 'followSnake') {
       camera.position.lerp(gameplayPos, delta * (locomotionMode === 'space' ? 3.2 : 2.5))
@@ -88,7 +84,7 @@ export default function CameraRig({
 
     if (mode === 'sectionFocus') {
       camera.position.lerp(focusCameraPos, delta * 2.1)
-      camera.lookAt(focusedTarget)
+      camera.lookAt(focusLookTarget)
       return
     }
 

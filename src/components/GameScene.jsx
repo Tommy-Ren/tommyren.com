@@ -467,7 +467,7 @@ function NavBlock({ label, path, theta, phi, color, onClick, flash }) {
   )
 }
 
-function SectionScene({ section, selectedItem, onSelect }) {
+function SectionScene({ section, selectedItem, onSelect, lowSpec = false }) {
   const zone = section && section !== 'home' ? contentZonesById[section] : null
   if (!zone) return null
 
@@ -475,7 +475,7 @@ function SectionScene({ section, selectedItem, onSelect }) {
     return <AboutDestination zone={zone} selectedId={selectedItem} onSelect={onSelect} />
   }
   if (zone.sectionId === 'projects') {
-    return <ProjectsDestination zone={zone} selectedId={selectedItem} onSelect={onSelect} />
+    return <ProjectsDestination zone={zone} selectedId={selectedItem} onSelect={onSelect} lowSpec={lowSpec} />
   }
   if (zone.sectionId === 'resume') {
     return <ResumeDestination zone={zone} selectedId={selectedItem} onSelect={onSelect} />
@@ -624,6 +624,22 @@ export default function GameScene({ lowSpec = false }) {
   useEffect(() => { reducedMotionRef.current = reducedMotion }, [reducedMotion])
   useEffect(() => { inputEnabledRef.current = inputEnabled }, [inputEnabled])
   useEffect(() => { gameplayFrozenRef.current = gameplayFrozen }, [gameplayFrozen])
+
+  useEffect(() => {
+    const activeZone = currentSection && currentSection !== 'home'
+      ? contentZonesById[currentSection]
+      : null
+    const controls = activeZone?.orbitControls
+    if (controls) {
+      if (Number.isFinite(controls.yaw)) sectionOrbitYawRef.current = controls.yaw
+      if (Number.isFinite(controls.pitch)) sectionOrbitPitchRef.current = controls.pitch
+      if (Number.isFinite(controls.distance)) sectionOrbitDistanceRef.current = controls.distance
+      return
+    }
+    sectionOrbitYawRef.current = 0
+    sectionOrbitPitchRef.current = 0.08
+    sectionOrbitDistanceRef.current = 72
+  }, [currentSection])
 
   useEffect(() => {
     gl.domElement.style.touchAction = 'none'
@@ -1894,7 +1910,7 @@ export default function GameScene({ lowSpec = false }) {
           />
         ))}
 
-      <SectionScene section={destinationSection} selectedItem={selectedSectionItem} onSelect={onSectionSelect} />
+      <SectionScene section={destinationSection} selectedItem={selectedSectionItem} onSelect={onSectionSelect} lowSpec={lowSpec} />
     </>
   )
 }

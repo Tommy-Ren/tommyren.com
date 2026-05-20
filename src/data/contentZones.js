@@ -80,12 +80,17 @@ export const contentZones = [
     themeColor: '#FF0055',
     accentColor: '#00F0FF',
     anchorPosition: [260, 78, -110],
-    arrivalCamera: [208, 102, -38],
-    orbitCamera: [220, 94, -52],
+    arrivalCamera: [344, 132, -110],
+    orbitCamera: [344, 130, -110],
+    orbitControls: {
+      yaw: Math.PI / 2,
+      pitch: 0.56,
+      distance: 118,
+    },
     focusTargets: [
-      { id: 'cyber-sphere-portfolio', label: 'Cyber-Sphere Portfolio', position: [214, 84, -54] },
-      { id: 'planetary-autopilot', label: 'Planetary Autopilot', position: [260, 70, -138] },
-      { id: 'adaptive-experience-layer', label: 'Adaptive Experience Layer', position: [308, 88, -46] },
+      { id: 'cyber-sphere-portfolio', label: 'Cyber-Sphere Portfolio', position: [260, 84.2, -135.5] },
+      { id: 'planetary-autopilot', label: 'Planetary Autopilot', position: [282.1, 85.8, -97.3] },
+      { id: 'adaptive-experience-layer', label: 'Adaptive Experience Layer', position: [237.9, 83.9, -97.3] },
     ],
     summary: 'Featured builds and technical systems presented as active launch bays.',
     content: {
