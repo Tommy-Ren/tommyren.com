@@ -7,9 +7,9 @@ function toVector3(value, fallback = [0, 0, 0]) {
   return new THREE.Vector3(source[0] || 0, source[1] || 0, source[2] || 0)
 }
 
-function withOffset(base, offset = [0, 0, 0]) {
-  const offsetVec = toVector3(offset)
-  return base.clone().add(offsetVec)
+function getFocusField(focusAnchor, key, fallback = null) {
+  if (!focusAnchor || Array.isArray(focusAnchor) || typeof focusAnchor !== 'object') return fallback
+  return focusAnchor[key] ?? fallback
 }
 
 export default function CameraRig({
@@ -37,7 +37,12 @@ export default function CameraRig({
     const homePos = toVector3(homeReturnAnchor, [0, 18, 30])
     const destinationTarget = toVector3(destinationAnchor, [0, 16, 26])
     const orbitPos = toVector3(destinationOrbit, [0, 14, 26])
-    const focusedTarget = toVector3(focusAnchor, destinationAnchor || [0, 16, 26])
+    const focusedTarget = toVector3(
+      Array.isArray(focusAnchor) ? focusAnchor : getFocusField(focusAnchor, 'position', destinationAnchor),
+      destinationAnchor || [0, 16, 26],
+    )
+    const explicitFocusCamera = getFocusField(focusAnchor, 'cameraPosition')
+    const explicitFocusLookAt = getFocusField(focusAnchor, 'lookAt')
     const orbitOffset = new THREE.Vector3(
       Math.cos(orbitPitch) * Math.sin(orbitYaw) * orbitDistance,
       Math.sin(orbitPitch) * orbitDistance,
@@ -49,6 +54,12 @@ export default function CameraRig({
     const focusCameraPos = orbitCameraPos.clone()
       .add(focusBias.clone().multiplyScalar(0.04))
       .add(new THREE.Vector3(0, Math.max(0.4, orbitDistance * 0.008), 0))
+    const resolvedFocusCameraPos = explicitFocusCamera
+      ? toVector3(explicitFocusCamera, explicitFocusCamera)
+      : focusCameraPos
+    const resolvedFocusLookTarget = explicitFocusLookAt
+      ? toVector3(explicitFocusLookAt, explicitFocusLookAt)
+      : focusLookTarget
 
     if (mode === 'followSnake') {
       camera.position.lerp(gameplayPos, delta * (locomotionMode === 'space' ? 3.2 : 2.5))
@@ -83,8 +94,8 @@ export default function CameraRig({
     }
 
     if (mode === 'sectionFocus') {
-      camera.position.lerp(focusCameraPos, delta * 2.1)
-      camera.lookAt(focusLookTarget)
+      camera.position.lerp(resolvedFocusCameraPos, delta * 2.7)
+      camera.lookAt(resolvedFocusLookTarget)
       return
     }
 

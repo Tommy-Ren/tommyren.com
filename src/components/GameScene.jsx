@@ -1807,8 +1807,8 @@ export default function GameScene({ lowSpec = false }) {
     : (gameplayState === 'transitioning' && transitionPhase === 'arrival' ? targetSection : null)
   const destinationZone = destinationSection && destinationSection !== 'home' ? contentZonesById[destinationSection] : null
   const destinationOrbit = destinationZone?.orbitCamera || destinationZone?.arrivalCamera || HOME_HUB.orbitCamera
-  const selectedFocusAnchor = destinationZone && selectedSectionItem
-    ? (destinationZone.focusTargets.find((item) => item.id === selectedSectionItem)?.position || null)
+  const selectedFocusTarget = destinationZone && selectedSectionItem
+    ? (destinationZone.focusTargets.find((item) => item.id === selectedSectionItem) || null)
     : null
 
 
@@ -1847,7 +1847,7 @@ export default function GameScene({ lowSpec = false }) {
         homeReturnAnchor={HOME_HUB.arrivalCamera}
         destinationAnchor={destinationZone?.anchorPosition || HOME_HUB.anchorPosition}
         destinationOrbit={destinationOrbit}
-        focusAnchor={selectedFocusAnchor}
+        focusAnchor={selectedFocusTarget}
         gameplayLookTarget={cameraLookTargetRef.current}
         locomotionMode={renderState.locomotionMode}
         orbitYaw={sectionOrbitYawRef.current}

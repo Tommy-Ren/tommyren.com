@@ -3,32 +3,47 @@ import { useFrame } from '@react-three/fiber'
 import * as THREE from 'three'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import projectStationModelUrl from '../../assets/3D/project_station.glb'
+import projectIconAtlasUrl from '../../assets/icon.png'
+import { getProjectLinks, getProjectStatusLabel, PROJECT_NODE_LAYOUT } from '../../data/projects'
+import { getProjectIconStyle, getProjectIconUv } from '../projects/projectIcons'
 
 const STATION_POSITION = [0, 0, 0]
 const NODE_CENTER = [0, 8.8, 0]
-const NODE_RING_RADIUS_X = 31
-const NODE_RING_RADIUS_Z = 24
-const DETAIL_PANEL_POSITION = [34, 14.5, 7]
-const DETAIL_PANEL_ANCHOR = [24, 9.6, 5]
 const TITLE_PLATE_POSITION = [0, 24.2, 1.5]
-
-const PROJECT_ICONS = {
-  'cyber-sphere-portfolio': '</>',
-  'planetary-autopilot': '◎',
-  'adaptive-experience-layer': '◫',
-}
+const PROJECT_NODE_FALLBACK = [0, 12, -18]
 
 function toVec3(list) {
   return new THREE.Vector3(list[0], list[1], list[2])
 }
 
-function buildNodePosition(index, total) {
-  const angle = (index / total) * Math.PI * 2 - Math.PI / 2
+function addVec3(base, offset = [0, 0, 0]) {
   return [
-    Math.cos(angle) * NODE_RING_RADIUS_X,
-    8 + Math.sin(angle * 2) * 1.15,
-    Math.sin(angle) * NODE_RING_RADIUS_Z,
+    (base?.[0] || 0) + (offset?.[0] || 0),
+    (base?.[1] || 0) + (offset?.[1] || 0),
+    (base?.[2] || 0) + (offset?.[2] || 0),
   ]
+}
+
+function ProjectIconSprite({ icon, className = '' }) {
+  return (
+    <span
+      className={className}
+      style={getProjectIconStyle(icon)}
+      aria-hidden="true"
+    />
+  )
+}
+
+function useIconAtlasTexture() {
+  return useMemo(() => {
+    const texture = new THREE.TextureLoader().load(projectIconAtlasUrl)
+    texture.colorSpace = THREE.SRGBColorSpace
+    texture.wrapS = THREE.ClampToEdgeWrapping
+    texture.wrapT = THREE.ClampToEdgeWrapping
+    texture.magFilter = THREE.LinearFilter
+    texture.minFilter = THREE.LinearMipMapLinearFilter
+    return texture
+  }, [])
 }
 
 function StarBackdrop({ lowSpec = false }) {
@@ -247,12 +262,64 @@ function ProjectConnector({ start, end, active = false, magenta = false }) {
   )
 }
 
-function ProjectNode({ project, index, total, selected, onSelect, showDetails = true }) {
+function ProjectNodeScreen({ icon, selected, hovered }) {
+  const atlasTexture = useIconAtlasTexture()
+  const tileTexture = useMemo(() => {
+    const texture = atlasTexture.clone()
+    const uv = getProjectIconUv(icon)
+    texture.offset.set(uv.offsetX, uv.offsetY)
+    texture.repeat.set(uv.repeatX, uv.repeatY)
+    texture.needsUpdate = true
+    return texture
+  }, [atlasTexture, icon])
+
+  return (
+    <group position={[0, 1.64, 1.38]}>
+      <mesh>
+        <planeGeometry args={[2.6, 2.6]} />
+        <meshBasicMaterial
+          color={selected ? '#11111a' : '#08111a'}
+          transparent
+          opacity={selected ? 0.98 : 0.92}
+          side={THREE.DoubleSide}
+        />
+      </mesh>
+      <mesh position={[0, 0, 0.02]}>
+        <planeGeometry args={[2.08, 2.08]} />
+        <meshBasicMaterial
+          map={tileTexture}
+          transparent
+          opacity={selected ? 1 : hovered ? 0.98 : 0.92}
+          color={selected ? '#ffffff' : hovered ? '#dbffff' : '#9ff5ff'}
+          side={THREE.DoubleSide}
+        />
+      </mesh>
+      <mesh position={[0, 0, 0.01]}>
+        <planeGeometry args={[2.28, 2.28]} />
+        <meshBasicMaterial
+          color={selected ? '#ff53c8' : hovered ? '#7cf4ff' : '#18dcff'}
+          transparent
+          opacity={selected ? 0.22 : hovered ? 0.16 : 0.1}
+          side={THREE.DoubleSide}
+        />
+      </mesh>
+    </group>
+  )
+}
+
+function ProjectNode({
+  project,
+  index,
+  position,
+  selected,
+  hovered,
+  onSelect,
+  onHoverStart,
+  onHoverEnd,
+}) {
   const groupRef = useRef()
   const ringRef = useRef()
   const label = project.shortTitle || project.title
-  const position = useMemo(() => buildNodePosition(index, total), [index, total])
-  const icon = PROJECT_ICONS[project.id] || '◇'
   const number = String(index + 1).padStart(2, '0')
 
   const handleSelect = (event) => {
@@ -266,54 +333,62 @@ function ProjectNode({ project, index, total, selected, onSelect, showDetails = 
 
   useFrame((state, delta) => {
     if (groupRef.current) {
-      const baseScale = selected ? 1.12 : 1
-      const pulse = 1 + Math.sin(state.clock.elapsedTime * (selected ? 3.0 : 1.55) + index) * (selected ? 0.04 : 0.015)
+      const baseScale = selected ? 1.12 : (hovered ? 1.05 : 1)
+      const pulse = 1 + Math.sin(state.clock.elapsedTime * (selected ? 3.0 : hovered ? 2.1 : 1.55) + index) * (selected ? 0.04 : hovered ? 0.022 : 0.015)
       groupRef.current.scale.lerp(new THREE.Vector3(baseScale * pulse, baseScale * pulse, baseScale * pulse), delta * 5)
     }
     if (ringRef.current) {
-      ringRef.current.rotation.z += delta * (selected ? 0.88 : 0.38)
+      ringRef.current.rotation.z += delta * (selected ? 0.88 : hovered ? 0.52 : 0.38)
     }
   })
 
   return (
-    <group ref={groupRef} position={position}>
-      <ProjectConnector start={NODE_CENTER} end={position} active={selected} />
+    <group
+      ref={groupRef}
+      position={position}
+      onPointerEnter={onHoverStart}
+      onPointerLeave={onHoverEnd}
+    >
+      <ProjectConnector start={NODE_CENTER} end={position} active={selected || hovered} />
 
       <mesh onClick={handleSelect}>
-        <cylinderGeometry args={[2.7, 3.28, 3.1, 10]} />
-        <meshStandardMaterial color="#0f1724" emissive={selected ? '#ff36b7' : '#00ddff'} emissiveIntensity={selected ? 1.55 : 0.72} metalness={0.86} roughness={0.32} />
+        <cylinderGeometry args={[1.64, 1.9, 0.82, 18]} />
+        <meshStandardMaterial color="#121520" emissive={selected ? '#ff36b7' : hovered ? '#59eeff' : '#00ddff'} emissiveIntensity={selected ? 1.3 : hovered ? 0.82 : 0.52} metalness={0.9} roughness={0.24} />
       </mesh>
-      <mesh position={[0, 1.62, 0]} onClick={handleSelect}>
-        <boxGeometry args={[2.95, 2.42, 2.42]} />
-        <meshStandardMaterial color="#112130" emissive={selected ? '#ff36b7' : '#20e8ff'} emissiveIntensity={selected ? 1.08 : 0.48} metalness={0.66} roughness={0.27} />
+      <mesh position={[0, 0.38, 0]} onClick={handleSelect}>
+        <cylinderGeometry args={[1.98, 2.28, 0.46, 18]} />
+        <meshStandardMaterial color="#181c28" emissive={selected ? '#ff36b7' : hovered ? '#59eeff' : '#1bdcff'} emissiveIntensity={selected ? 0.82 : hovered ? 0.42 : 0.22} metalness={0.84} roughness={0.3} />
       </mesh>
-      <mesh position={[0, 1.66, 1.22]}>
-        <planeGeometry args={[2.0, 1.62]} />
-        <meshBasicMaterial color={selected ? '#ff9ce0' : '#adf4ff'} transparent opacity={0.84} side={THREE.DoubleSide} />
-      </mesh>
-      <mesh ref={ringRef} position={[0, 0.18, 0]} rotation={[Math.PI / 2, 0, 0]}>
-        <torusGeometry args={[4.15, 0.09, 8, 84]} />
-        <meshBasicMaterial color={selected ? '#ff36b7' : '#00deff'} transparent opacity={selected ? 0.92 : 0.4} />
+      <ProjectNodeScreen icon={project.icon} selected={selected} hovered={hovered} />
+      <mesh ref={ringRef} position={[0, -0.12, 0]} rotation={[Math.PI / 2, 0, 0]}>
+        <torusGeometry args={[2.78, 0.08, 8, 84]} />
+        <meshBasicMaterial color={selected ? '#ff36b7' : hovered ? '#7cf4ff' : '#00deff'} transparent opacity={selected ? 0.94 : hovered ? 0.54 : 0.24} />
       </mesh>
 
-      <Html center position={[0, 1.66, 1.36]} transform sprite distanceFactor={12.5}>
+      <mesh
+        position={[0, 1.56, 1.58]}
+        onClick={handleSelect}
+        onPointerEnter={onHoverStart}
+        onPointerLeave={onHoverEnd}
+      >
+        <planeGeometry args={[2.3, 2.3]} />
+        <meshBasicMaterial transparent opacity={0.01} side={THREE.DoubleSide} depthWrite={false} />
+      </mesh>
+
+      <Html center position={[0, 3.12, 0.28]} transform sprite distanceFactor={22}>
         <button
           type="button"
-          className={`section-project-node-face ${selected ? 'active' : ''}`}
+          className={`section-project-node-face section-project-node-face-chip ${selected ? 'active' : ''} ${hovered ? 'hovered' : ''}`}
           onClick={handleSelect}
           onPointerDown={stopHtmlPropagation}
+          onPointerEnter={onHoverStart}
+          onPointerLeave={onHoverEnd}
           aria-label={`Open project ${project.title}`}
+          aria-pressed={selected}
         >
-          <span className="section-project-node-num">{number}</span>
-          <span className="section-project-node-icon">{icon}</span>
+          <span className="section-project-node-chip-title">{label}</span>
         </button>
       </Html>
-
-      {showDetails && (
-        <Html center position={[0, 5.85, 0]} transform sprite distanceFactor={18}>
-          <div className={`section-project-node-label ${selected ? 'active' : ''}`}>{label}</div>
-        </Html>
-      )}
     </group>
   )
 }
@@ -376,89 +451,228 @@ function ProjectStationModel({ lowSpec = false }) {
   )
 }
 
-function ProjectDetailPanel({ project }) {
-  const featurePreview = project.features?.slice(0, 3) || []
-  const actionMap = Object.fromEntries((project.actions || []).map((action) => [action.label.toLowerCase(), action]))
-  const liveAction = actionMap['live site'] || actionMap.demo || project.actions?.[0] || null
-  const sourceAction = actionMap.source || actionMap.github || project.actions?.[1] || null
-  const hasAnyAction = Boolean(liveAction || sourceAction)
+function ProjectDetailPanel({ project, selectedNodePosition, panelAnchor, onClose, isMobile = false }) {
+  const featurePreview = project.highlights?.slice(0, 3) || []
+  const actions = getProjectLinks(project)
+  const hasAnyAction = actions.length > 0
+  const actionTone = actions.some((action) => action.id === 'github')
+  const statusLabel = getProjectStatusLabel(project)
+  const panelPosition = panelAnchor || selectedNodePosition || PROJECT_NODE_FALLBACK
+  const panelDotPosition = panelAnchor
+    ? [panelAnchor[0] - 1.5, panelAnchor[1] + 0.8, panelAnchor[2] - 0.2]
+    : panelPosition
 
   return (
     <>
-      <ProjectConnector start={DETAIL_PANEL_ANCHOR} end={DETAIL_PANEL_POSITION} active magenta={!!sourceAction} />
-      <Html position={DETAIL_PANEL_POSITION} transform distanceFactor={15}>
-        <div className="section-project-panel section-project-panel-world">
-          <div className="section-project-panel-grid" />
-          <div className="section-project-panel-header">
-            <div>
-              <div className="section-project-panel-kicker">Project Dockyard</div>
-              <h3>{project.title}</h3>
-            </div>
-            <div className="section-project-panel-index">{String(project.index ?? 1).padStart(2, '0')}</div>
-          </div>
+      {selectedNodePosition && panelPosition && (
+        <ProjectConnector start={selectedNodePosition} end={panelDotPosition} active magenta={actionTone} />
+      )}
+      <mesh position={panelDotPosition}>
+        <sphereGeometry args={[0.34, 18, 18]} />
+        <meshBasicMaterial color={actionTone ? '#ff43bb' : '#00deff'} transparent opacity={0.92} />
+      </mesh>
+      {isMobile ? (
+        <Html fullscreen zIndexRange={[2600, 2600]}>
+          <div className="section-project-panel-shell mobile">
+            <div className="section-project-panel section-project-panel-dock mobile">
+              <div className="section-project-panel-grid" />
+              <div className="section-project-panel-header">
+                <div className="section-project-panel-lead">
+                  <ProjectIconSprite icon={project.icon} className="section-project-panel-icon" />
+                  <div>
+                    <div className="section-project-panel-kicker">Project Dockyard</div>
+                    <h3>{project.title}</h3>
+                  </div>
+                </div>
+                <div className="section-project-panel-header-meta">
+                  <div className="section-project-panel-index">{String(project.index ?? 1).padStart(2, '0')}</div>
+                  <button
+                    type="button"
+                    className="section-project-panel-close"
+                    onClick={onClose}
+                    aria-label={`Close ${project.title} panel`}
+                  >
+                    Close
+                  </button>
+                </div>
+              </div>
 
-          <p className="section-project-panel-summary">{project.summary}</p>
+              <div className="section-project-panel-meta-row">
+                <span className="section-project-status">{statusLabel}</span>
+                {project.shortTitle && <span className="section-project-shorttitle">{project.shortTitle}</span>}
+              </div>
 
-          {project.role && (
-            <div className="section-project-panel-block">
-              <div className="section-project-panel-label">Role</div>
-              <div className="section-project-panel-copy">{project.role}</div>
-            </div>
-          )}
+              <p className="section-project-panel-summary">{project.description}</p>
 
-          {featurePreview.length > 0 && (
-            <div className="section-project-panel-block">
-              <div className="section-project-panel-label">Highlights</div>
-              <ul className="section-project-panel-list">
-                {featurePreview.map((feature) => (
-                  <li key={feature}>{feature}</li>
+              {project.role && (
+                <div className="section-project-panel-block">
+                  <div className="section-project-panel-label">Role</div>
+                  <div className="section-project-panel-copy">{project.role}</div>
+                </div>
+              )}
+
+              {featurePreview.length > 0 && (
+                <div className="section-project-panel-block">
+                  <div className="section-project-panel-label">Highlights</div>
+                  <ul className="section-project-panel-list">
+                    {featurePreview.map((feature) => (
+                      <li key={feature}>{feature}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              <div className="section-chip-row section-project-chip-row">
+                {(project.tech || []).map((tech) => <span key={tech} className="section-mini-chip">{tech}</span>)}
+              </div>
+
+              <div className="section-action-row section-project-actions">
+                {actions.map((action) => (
+                  <a
+                    key={action.id}
+                    className={`section-action-chip ${action.id === 'github' ? 'section-project-action-secondary' : 'section-project-action-primary'}`}
+                    href={action.href}
+                    target="_blank"
+                    rel="noreferrer"
+                    aria-label={`Open ${project.title} ${action.label}`}
+                  >
+                    {action.id === 'github' ? 'Code' : action.label}
+                  </a>
                 ))}
-              </ul>
+                {!hasAnyAction && (
+                  <span className="section-action-chip muted">Coming Soon</span>
+                )}
+              </div>
             </div>
-          )}
-
-          <div className="section-chip-row section-project-chip-row">
-            {project.technologies.map((tech) => <span key={tech} className="section-mini-chip">{tech}</span>)}
           </div>
+        </Html>
+      ) : (
+        <Html fullscreen zIndexRange={[2600, 2600]}>
+          <div className="section-project-panel-shell desktop">
+            <div className="section-project-panel section-project-panel-dock desktop">
+              <div className="section-project-panel-grid" />
+              <div className="section-project-panel-header">
+                <div className="section-project-panel-lead">
+                  <ProjectIconSprite icon={project.icon} className="section-project-panel-icon" />
+                  <div>
+                    <div className="section-project-panel-kicker">Project Dockyard</div>
+                    <h3>{project.title}</h3>
+                  </div>
+                </div>
+                <div className="section-project-panel-header-meta">
+                  <div className="section-project-panel-index">{String(project.index ?? 1).padStart(2, '0')}</div>
+                  <button
+                    type="button"
+                    className="section-project-panel-close"
+                    onClick={onClose}
+                    aria-label={`Close ${project.title} panel`}
+                  >
+                    Close
+                  </button>
+                </div>
+              </div>
 
-          <div className="section-action-row section-project-actions">
-            {liveAction && (
-              <a
-                className="section-action-chip section-project-action-primary"
-                href={liveAction.href}
-                target="_blank"
-                rel="noreferrer"
-                aria-label={`Open ${project.title} demo`}
-              >
-                Demo
-              </a>
-            )}
-            {sourceAction && (
-              <a
-                className="section-action-chip section-project-action-secondary"
-                href={sourceAction.href}
-                target="_blank"
-                rel="noreferrer"
-                aria-label={`Open ${project.title} GitHub repository`}
-              >
-                GitHub
-              </a>
-            )}
-            {!hasAnyAction && (
-              <span className="section-action-chip muted">Coming Soon</span>
-            )}
+              <div className="section-project-panel-meta-row">
+                <span className="section-project-status">{statusLabel}</span>
+                {project.shortTitle && <span className="section-project-shorttitle">{project.shortTitle}</span>}
+              </div>
+
+              <p className="section-project-panel-summary">{project.description}</p>
+
+              {project.role && (
+                <div className="section-project-panel-block">
+                  <div className="section-project-panel-label">Role</div>
+                  <div className="section-project-panel-copy">{project.role}</div>
+                </div>
+              )}
+
+              {featurePreview.length > 0 && (
+                <div className="section-project-panel-block">
+                  <div className="section-project-panel-label">Highlights</div>
+                  <ul className="section-project-panel-list">
+                    {featurePreview.map((feature) => (
+                      <li key={feature}>{feature}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              <div className="section-chip-row section-project-chip-row">
+                {(project.tech || []).map((tech) => <span key={tech} className="section-mini-chip">{tech}</span>)}
+              </div>
+
+              <div className="section-action-row section-project-actions">
+                {actions.map((action) => (
+                  <a
+                    key={action.id}
+                    className={`section-action-chip ${action.id === 'github' ? 'section-project-action-secondary' : 'section-project-action-primary'}`}
+                    href={action.href}
+                    target="_blank"
+                    rel="noreferrer"
+                    aria-label={`Open ${project.title} ${action.label}`}
+                  >
+                    {action.id === 'github' ? 'Code' : action.label}
+                  </a>
+                ))}
+                {!hasAnyAction && (
+                  <span className="section-action-chip muted">Coming Soon</span>
+                )}
+              </div>
+            </div>
           </div>
-        </div>
-      </Html>
+        </Html>
+      )}
     </>
   )
 }
 
 export default function ProjectsDestination({ zone, selectedId, onSelect, lowSpec = false }) {
   const [keyboardIndex, setKeyboardIndex] = useState(0)
-  const projects = zone.content.projects
+  const [hoveredProjectId, setHoveredProjectId] = useState(null)
+  const [isMobile, setIsMobile] = useState(() => {
+    if (typeof window === 'undefined' || !window.matchMedia) return false
+    return window.matchMedia('(max-width: 900px)').matches
+  })
+  const projects = zone.content.projects || []
+  const dockNodes = useMemo(() => {
+    const projectById = Object.fromEntries(projects.map((project) => [project.id, project]))
+    return PROJECT_NODE_LAYOUT
+      .map((node, index) => ({
+        id: node.id,
+        index,
+        position: node.position,
+        panelOffset: node.panelOffset || [0, 6, 8],
+        project: projectById[node.id] || null,
+      }))
+      .filter((node) => node.project)
+  }, [projects])
+  const nodePositions = useMemo(
+    () => Object.fromEntries(
+      dockNodes.map((node) => [node.id, node.position])
+    ),
+    [dockNodes]
+  )
   const selectedProject = selectedId ? projects.find((item) => item.id === selectedId) || null : null
+  const selectedDockNode = selectedProject ? dockNodes.find((node) => node.project.id === selectedProject.id) || null : null
+  const selectedNodePosition = selectedProject ? (nodePositions[selectedProject.id] || PROJECT_NODE_FALLBACK) : null
+  const selectedPanelAnchor = selectedDockNode && selectedNodePosition
+    ? addVec3(selectedNodePosition, selectedDockNode.panelOffset)
+    : null
   const activeProject = selectedProject || projects[keyboardIndex] || projects[0] || null
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || !window.matchMedia) return undefined
+    const media = window.matchMedia('(max-width: 900px)')
+    const sync = (event) => setIsMobile(event.matches)
+
+    setIsMobile(media.matches)
+    if (media.addEventListener) {
+      media.addEventListener('change', sync)
+      return () => media.removeEventListener('change', sync)
+    }
+    media.addListener(sync)
+    return () => media.removeListener(sync)
+  }, [])
 
   useEffect(() => {
     const selectedIndex = projects.findIndex((item) => item.id === selectedId)
@@ -549,15 +763,17 @@ export default function ProjectsDestination({ zone, selectedId, onSelect, lowSpe
       <StarBackdrop lowSpec={lowSpec} />
       <ProjectStationModel lowSpec={lowSpec} />
 
-      {projects.map((project, index) => (
+      {dockNodes.map((node) => (
         <ProjectNode
-          key={project.id}
-          project={{ ...project, index: index + 1 }}
-          index={index}
-          total={projects.length}
-          selected={project.id === selectedId}
+          key={node.project.id}
+          project={node.project}
+          index={node.index}
+          position={node.position}
+          selected={node.project.id === selectedId}
+          hovered={node.project.id === hoveredProjectId}
           onSelect={onSelect}
-          showDetails={!lowSpec}
+          onHoverStart={() => setHoveredProjectId(node.project.id)}
+          onHoverEnd={() => setHoveredProjectId((current) => (current === node.project.id ? null : current))}
         />
       ))}
 
@@ -570,10 +786,11 @@ export default function ProjectsDestination({ zone, selectedId, onSelect, lowSpe
 
       {selectedProject && (
         <ProjectDetailPanel
-          project={{
-            ...selectedProject,
-            index: Math.max(1, projects.findIndex((item) => item.id === selectedProject.id) + 1),
-          }}
+          project={selectedProject}
+          selectedNodePosition={selectedNodePosition}
+          panelAnchor={selectedPanelAnchor}
+          onClose={() => onSelect(selectedProject.id)}
+          isMobile={isMobile}
         />
       )}
     </group>

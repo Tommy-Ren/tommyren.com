@@ -1102,35 +1102,45 @@ canvas {
 }
 
 .section-project-node-face {
-  min-width: 52px;
-  min-height: 52px;
-  border-radius: 13px;
-  border: 1px solid rgba(0, 240, 255, 0.3);
-  background:
-    linear-gradient(180deg, rgba(6, 18, 34, 0.92) 0%, rgba(2, 8, 18, 0.96) 100%);
+  min-width: 58px;
+  min-height: 62px;
+  border-radius: 16px;
+  border: 1px solid rgba(0, 240, 255, 0.12);
+  background: rgba(1, 7, 15, 0.28);
   color: var(--primary);
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 2px;
-  box-shadow:
-    0 0 0 1px rgba(0, 240, 255, 0.08) inset,
-    0 0 20px rgba(0, 240, 255, 0.14);
+  gap: 3px;
+  padding: 4px 4px 5px;
+  box-shadow: 0 0 18px rgba(0, 240, 255, 0.08);
   cursor: pointer;
   transition: transform 160ms ease, border-color 160ms ease, box-shadow 160ms ease;
 }
 
+.section-project-node-face-chip {
+  min-width: 74px;
+  min-height: 28px;
+  border-radius: 999px;
+  padding: 0 10px;
+  gap: 4px;
+  background: rgba(2, 10, 20, 0.88);
+  border-color: rgba(0, 240, 255, 0.22);
+}
+
 .section-project-node-face:hover {
   transform: translateY(-1px) scale(1.02);
-  border-color: rgba(112, 241, 255, 0.54);
+  border-color: rgba(112, 241, 255, 0.28);
+}
+
+.section-project-node-face.hovered {
+  box-shadow: 0 0 22px rgba(0, 240, 255, 0.16);
 }
 
 .section-project-node-face.active {
   border-color: rgba(255, 48, 173, 0.74);
-  box-shadow:
-    0 0 0 1px rgba(255, 48, 173, 0.12) inset,
-    0 0 22px rgba(255, 48, 173, 0.26);
+  box-shadow: 0 0 24px rgba(255, 48, 173, 0.28);
 }
 
 .section-project-node-num {
@@ -1138,13 +1148,29 @@ canvas {
   font-size: 0.54rem;
   letter-spacing: 1.2px;
   color: rgba(130, 240, 255, 0.82);
+  text-shadow: 0 0 10px rgba(0, 240, 255, 0.22);
 }
 
-.section-project-node-icon {
-  font-family: var(--font-main);
-  font-size: 1rem;
+.section-project-node-sprite {
+  width: 42px;
+  height: 42px;
+  border-radius: 11px;
+  display: block;
+  background-repeat: no-repeat;
+  background-color: #020916;
+  box-shadow:
+    0 0 0 1px rgba(0, 240, 255, 0.08) inset,
+    0 0 16px rgba(0, 240, 255, 0.18);
+}
+
+.section-project-node-chip-title {
+  font-family: var(--font-mono);
+  font-size: 0.52rem;
+  letter-spacing: 1.3px;
   line-height: 1;
-  color: #dffcff;
+  color: rgba(220, 252, 255, 0.94);
+  text-transform: uppercase;
+  white-space: nowrap;
 }
 
 .section-project-node-label {
@@ -1187,8 +1213,46 @@ canvas {
   pointer-events: auto;
 }
 
-.section-project-panel-world {
-  width: min(420px, 84vw);
+.section-project-panel-world-card {
+  width: min(340px, 30vw);
+  min-height: 0;
+}
+
+.section-project-panel-shell {
+  width: 100vw;
+  height: 100vh;
+  pointer-events: none;
+  z-index: 2200;
+  box-sizing: border-box;
+}
+
+.section-project-panel-shell.desktop {
+  display: flex;
+  justify-content: flex-end;
+  align-items: flex-start;
+  padding: 96px 48px 40px;
+}
+
+.section-project-panel-shell.mobile {
+  display: flex;
+  justify-content: center;
+  align-items: flex-end;
+  padding: 0 12px 14px;
+}
+
+.section-project-panel-dock.desktop {
+  width: min(460px, 36vw);
+  min-width: 360px;
+  pointer-events: auto;
+}
+
+.section-project-panel-dock.mobile {
+  width: min(100%, 420px);
+  max-height: 64vh;
+  overflow-y: auto;
+  border-bottom-left-radius: 18px;
+  border-bottom-right-radius: 18px;
+  pointer-events: auto;
 }
 
 .section-project-panel::before {
@@ -1228,6 +1292,26 @@ canvas {
   gap: 12px;
 }
 
+.section-project-panel-lead {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  min-width: 0;
+}
+
+.section-project-panel-icon {
+  width: 58px;
+  height: 58px;
+  border-radius: 14px;
+  flex-shrink: 0;
+  display: block;
+  background-repeat: no-repeat;
+  background-color: #020916;
+  box-shadow:
+    0 0 0 1px rgba(0, 240, 255, 0.08) inset,
+    0 0 18px rgba(0, 240, 255, 0.18);
+}
+
 .section-project-panel-kicker {
   font-family: var(--font-mono);
   font-size: 0.64rem;
@@ -1258,6 +1342,69 @@ canvas {
   font-family: var(--font-mono);
   font-size: 0.72rem;
   letter-spacing: 1.4px;
+}
+
+.section-project-panel-header-meta {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.section-project-panel-close {
+  border: 1px solid rgba(0, 240, 255, 0.24);
+  border-radius: 999px;
+  background: rgba(0, 240, 255, 0.08);
+  color: rgba(220, 252, 255, 0.92);
+  font-family: var(--font-mono);
+  font-size: 0.56rem;
+  letter-spacing: 1.4px;
+  text-transform: uppercase;
+  min-height: 30px;
+  padding: 0 12px;
+  cursor: pointer;
+  transition: transform 160ms ease, border-color 160ms ease, box-shadow 160ms ease;
+}
+
+.section-project-panel-close:hover {
+  transform: translateY(-1px);
+  border-color: rgba(255, 48, 173, 0.4);
+  box-shadow: 0 0 18px rgba(255, 48, 173, 0.14);
+}
+
+.section-project-panel-meta-row {
+  position: relative;
+  z-index: 1;
+  margin-top: 12px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.section-project-status,
+.section-project-shorttitle {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 0 11px;
+  border-radius: 999px;
+  font-family: var(--font-mono);
+  font-size: 0.58rem;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+}
+
+.section-project-status {
+  border: 1px solid rgba(255, 48, 173, 0.34);
+  background: rgba(255, 48, 173, 0.12);
+  color: rgba(255, 222, 241, 0.96);
+}
+
+.section-project-shorttitle {
+  border: 1px solid rgba(0, 240, 255, 0.22);
+  background: rgba(0, 240, 255, 0.08);
+  color: rgba(199, 248, 255, 0.9);
 }
 
 .section-project-panel-summary {
@@ -1460,6 +1607,18 @@ canvas {
     padding: 14px 14px 13px;
   }
 
+  .section-project-panel-world-card {
+    width: min(280px, 78vw);
+  }
+
+  .section-project-panel-shell.desktop {
+    padding: 84px 12px 24px;
+  }
+
+  .section-project-panel-dock.desktop {
+    width: min(320px, 86vw);
+  }
+
   .section-project-titleplate {
     min-width: 196px;
     padding: 10px 14px 9px;
@@ -1491,12 +1650,38 @@ canvas {
   }
 
   .section-project-node-face {
-    min-width: 46px;
-    min-height: 46px;
+    min-width: 50px;
+    min-height: 54px;
   }
 
-  .section-project-node-icon {
-    font-size: 0.86rem;
+  .section-project-node-face-chip {
+    min-width: 66px;
+    min-height: 24px;
+    padding: 0 8px;
+  }
+
+  .section-project-node-sprite {
+    width: 36px;
+    height: 36px;
+    border-radius: 10px;
+  }
+
+  .section-project-panel-icon {
+    width: 46px;
+    height: 46px;
+    border-radius: 12px;
+  }
+
+  .section-project-node-chip-title {
+    font-size: 0.46rem;
+    letter-spacing: 1px;
+  }
+
+  .section-project-panel-close,
+  .section-project-status,
+  .section-project-shorttitle {
+    font-size: 0.52rem;
+    letter-spacing: 1.2px;
   }
 
   .section-floating-copy h3 {

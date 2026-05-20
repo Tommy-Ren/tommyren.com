@@ -1,4 +1,16 @@
 import { getSectionTransition } from './sectionTransitions'
+import { buildProjectFocusTarget, PROJECT_NODE_LAYOUT, projects } from './projects'
+
+function createFocusTarget({ id, label, position, panelPosition, cameraPosition, lookAt }) {
+  return {
+    id,
+    label,
+    position,
+    panelPosition: panelPosition || position,
+    cameraPosition: cameraPosition || position,
+    lookAt: lookAt || panelPosition || position,
+  }
+}
 
 export const HOME_HUB = {
   id: 'home',
@@ -31,11 +43,46 @@ export const contentZones = [
     arrivalCamera: [-194, 91, -68],
     orbitCamera: [-198, 89, -76],
     focusTargets: [
-      { id: 'who', label: 'Who I Am', position: [-220, 114.6, -171] },
-      { id: 'background', label: 'Background', position: [-251, 102.5, -172] },
-      { id: 'skills', label: 'Skills', position: [-189, 103.0, -172] },
-      { id: 'philosophy', label: 'Design Philosophy', position: [-244.5, 75.5, -170] },
-      { id: 'notes', label: 'Personal Notes', position: [-195.5, 75.4, -170] },
+      createFocusTarget({
+        id: 'who',
+        label: 'Who I Am',
+        position: [-220, 114.6, -171],
+        panelPosition: [-220, 116.6, -169.5],
+        cameraPosition: [-220, 120.5, -137.5],
+        lookAt: [-220, 114.6, -171],
+      }),
+      createFocusTarget({
+        id: 'background',
+        label: 'Background',
+        position: [-251, 102.5, -172],
+        panelPosition: [-249.5, 103.8, -170.3],
+        cameraPosition: [-234.5, 105.8, -140.5],
+        lookAt: [-249.5, 102.5, -171.4],
+      }),
+      createFocusTarget({
+        id: 'skills',
+        label: 'Skills',
+        position: [-189, 103.0, -172],
+        panelPosition: [-190.5, 104.1, -170.3],
+        cameraPosition: [-205.5, 106.0, -140.5],
+        lookAt: [-190.5, 103.0, -171.4],
+      }),
+      createFocusTarget({
+        id: 'philosophy',
+        label: 'Design Philosophy',
+        position: [-244.5, 75.5, -170],
+        panelPosition: [-242.9, 76.4, -168.4],
+        cameraPosition: [-229.5, 79.0, -140.0],
+        lookAt: [-242.9, 75.9, -169.1],
+      }),
+      createFocusTarget({
+        id: 'notes',
+        label: 'Personal Notes',
+        position: [-195.5, 75.4, -170],
+        panelPosition: [-197.1, 76.3, -168.4],
+        cameraPosition: [-210.5, 78.9, -140.0],
+        lookAt: [-197.1, 75.8, -169.1],
+      }),
     ],
     summary: 'Identity fragments, skills, and creative positioning orbiting the core.',
     content: {
@@ -87,57 +134,13 @@ export const contentZones = [
       pitch: 0.56,
       distance: 118,
     },
-    focusTargets: [
-      { id: 'cyber-sphere-portfolio', label: 'Cyber-Sphere Portfolio', position: [260, 84.2, -135.5] },
-      { id: 'planetary-autopilot', label: 'Planetary Autopilot', position: [282.1, 85.8, -97.3] },
-      { id: 'adaptive-experience-layer', label: 'Adaptive Experience Layer', position: [237.9, 83.9, -97.3] },
-    ],
+    focusTargets: PROJECT_NODE_LAYOUT.map((node) => {
+      const project = projects.find((item) => item.id === node.id)
+      return buildProjectFocusTarget([260, 78, -110], node, project?.title || 'Project Node')
+    }),
     summary: 'Featured builds and technical systems presented as active launch bays.',
     content: {
-      projects: [
-        {
-          id: 'cyber-sphere-portfolio',
-          title: 'Cyber-Sphere Portfolio',
-          summary: 'A playable 3D portfolio universe that blends navigation, game feel, and recruiter-friendly access inside one continuous scene.',
-          role: 'Concept, interaction design, frontend engineering, rendering, and systems integration.',
-          technologies: ['React', 'Three.js', 'React Three Fiber', 'Zustand', 'Vite'],
-          features: [
-            'Spherical locomotion with camera-aware presentation',
-            'Autopilot navigation inside a persistent 3D world',
-            'Low-spec rendering mode and mobile gesture support',
-          ],
-          actions: [
-            { label: 'Live Site', href: 'https://tianzeren.com' },
-            { label: 'Source', href: 'https://github.com/Tommy-Ren/tommyren.com' },
-          ],
-        },
-        {
-          id: 'planetary-autopilot',
-          title: 'Planetary Autopilot',
-          summary: 'A movement system that uses spherical math and obstacle-aware pathfinding to steer the snake through a curved world without traditional page routing.',
-          role: 'Gameplay systems, math utilities, camera tuning, and steering logic.',
-          technologies: ['Three.js', 'A* Pathfinding', 'Vector Math', 'React Three Fiber'],
-          features: [
-            'Great-circle movement and heading transport',
-            'Obstacle clearance around landmarks and body segments',
-            'Recovery behavior for difficult paths and near-collision turns',
-          ],
-          actions: [],
-        },
-        {
-          id: 'adaptive-experience-layer',
-          title: 'Adaptive Experience Layer',
-          summary: 'A presentation layer focused on preserving access across low-spec devices, touch input, and reduced-motion preferences.',
-          role: 'Responsive UX, performance tuning, and accessibility-oriented interaction design.',
-          technologies: ['React', 'CSS', 'Device Capability Detection'],
-          features: [
-            'Low-spec render profile with lighter scene costs',
-            'Touch gestures for steering, zoom, and focus interactions',
-            'Readable content flow that stays inside the same universe',
-          ],
-          actions: [],
-        },
-      ],
+      projects,
     },
   },
   {
@@ -155,11 +158,46 @@ export const contentZones = [
     arrivalCamera: [6, 124, 398],
     orbitCamera: [42, 120, 374],
     focusTargets: [
-      { id: 'experience', label: 'Experience', position: [14, 102, 318] },
-      { id: 'education', label: 'Education', position: [18, 128, 318] },
-      { id: 'skills', label: 'Skills', position: [22, 154, 318] },
-      { id: 'highlights', label: 'Highlights', position: [26, 180, 318] },
-      { id: 'download', label: 'Download Resume', position: [30, 206, 318] },
+      createFocusTarget({
+        id: 'experience',
+        label: 'Experience',
+        position: [14, 102, 318],
+        panelPosition: [42, 146, 328],
+        cameraPosition: [92, 154, 358],
+        lookAt: [42, 145, 327],
+      }),
+      createFocusTarget({
+        id: 'education',
+        label: 'Education',
+        position: [18, 128, 318],
+        panelPosition: [42, 146, 328],
+        cameraPosition: [92, 154, 358],
+        lookAt: [42, 145, 327],
+      }),
+      createFocusTarget({
+        id: 'skills',
+        label: 'Skills',
+        position: [22, 154, 318],
+        panelPosition: [42, 146, 328],
+        cameraPosition: [92, 154, 358],
+        lookAt: [42, 145, 327],
+      }),
+      createFocusTarget({
+        id: 'highlights',
+        label: 'Highlights',
+        position: [26, 180, 318],
+        panelPosition: [42, 146, 328],
+        cameraPosition: [92, 154, 358],
+        lookAt: [42, 145, 327],
+      }),
+      createFocusTarget({
+        id: 'download',
+        label: 'Download Resume',
+        position: [30, 206, 318],
+        panelPosition: [42, 146, 328],
+        cameraPosition: [92, 154, 358],
+        lookAt: [42, 145, 327],
+      }),
     ],
     summary: 'Career layers, technical strengths, and a practical download channel.',
     content: {
@@ -207,10 +245,38 @@ export const contentZones = [
     arrivalCamera: [-222, 134, 214],
     orbitCamera: [-236, 122, 198],
     focusTargets: [
-      { id: 'website', label: 'Website', position: [-254, 96, 126] },
-      { id: 'github', label: 'GitHub Repo', position: [-324, 122, 152] },
-      { id: 'email', label: 'Email', position: [-280, 84, 198] },
-      { id: 'linkedin', label: 'LinkedIn', position: [-228, 126, 172] },
+      createFocusTarget({
+        id: 'website',
+        label: 'Website',
+        position: [-254, 96, 126],
+        panelPosition: [-286, 124, 164],
+        cameraPosition: [-286, 134, 222],
+        lookAt: [-286, 123, 164],
+      }),
+      createFocusTarget({
+        id: 'github',
+        label: 'GitHub Repo',
+        position: [-324, 122, 152],
+        panelPosition: [-286, 124, 164],
+        cameraPosition: [-286, 134, 222],
+        lookAt: [-286, 123, 164],
+      }),
+      createFocusTarget({
+        id: 'email',
+        label: 'Email',
+        position: [-280, 84, 198],
+        panelPosition: [-286, 124, 164],
+        cameraPosition: [-286, 134, 222],
+        lookAt: [-286, 123, 164],
+      }),
+      createFocusTarget({
+        id: 'linkedin',
+        label: 'LinkedIn',
+        position: [-228, 126, 172],
+        panelPosition: [-286, 124, 164],
+        cameraPosition: [-286, 134, 222],
+        lookAt: [-286, 123, 164],
+      }),
     ],
     summary: 'External channels, code access, and the live site entrypoint.',
     content: {

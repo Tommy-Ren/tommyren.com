@@ -1,3 +1,4 @@
+import { getProjectLinks, getProjectStatusLabel } from '../../data/projects'
 import useGameStore from '../../store/gameStore'
 import { contentZonesById } from '../../data/contentZones'
 
@@ -40,26 +41,26 @@ function ProjectsZone({ zone }) {
         <article key={project.title} className="focus-project-card">
           <div className="focus-project-top">
             <div>
-              <div className="focus-chip">Featured System</div>
+              <div className="focus-chip">{project.featured ? 'Featured System' : 'Project Node'}</div>
               <h3>{project.title}</h3>
             </div>
             <div className="focus-project-role">{project.role}</div>
           </div>
-          <p>{project.summary}</p>
+          <p>{project.description}</p>
           <div className="focus-tag-row">
-            {project.technologies.map((tech) => (
+            {project.tech.map((tech) => (
               <span key={tech} className="focus-tag">{tech}</span>
             ))}
           </div>
           <ul className="focus-layer-list">
-            {project.features.map((feature) => (
+            {(project.highlights || []).map((feature) => (
               <li key={feature}>{feature}</li>
             ))}
           </ul>
           <div className="focus-action-row">
-            {project.actions.length > 0
-              ? project.actions.map((action) => <ActionLink key={action.label} action={action} />)
-              : <span className="focus-action ghost">In-world showcase active</span>}
+            {getProjectLinks(project).length > 0
+              ? getProjectLinks(project).map((action) => <ActionLink key={action.label} action={action} />)
+              : <span className="focus-action ghost">{getProjectStatusLabel(project)}</span>}
           </div>
         </article>
       ))}
